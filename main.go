@@ -4,11 +4,10 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
-	"mcp-workspace-manager/pkg/mcp"
-	"mcp-workspace-manager/pkg/tool"
-	"mcp-workspace-manager/pkg/transport"
+	"mcp-workspace-manager/pkg/mcpsdk"
 	"mcp-workspace-manager/pkg/workspace"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -16,6 +15,7 @@ import (
 type Config struct {
 	WorkspacesRoot string
 	Transport      string
+	Host           string
 	Port           int
 	LogFormat      string
 	LogLevel       slog.Level
@@ -23,9 +23,25 @@ type Config struct {
 
 func main() {
 	cfg := &Config{}
+
+	defaultHost := os.Getenv("HOST")
+	if defaultHost == "" {
+		defaultHost = "127.0.0.1"
+	}
+
+	defaultPort := 8080
+	if envPort := os.Getenv("PORT"); envPort != "" {
+		if p, err := strconv.Atoi(envPort); err == nil {
+			defaultPort = p
+		} else {
+			fmt.Fprintf(os.Stderr, "Invalid PORT value %q, falling back to %d\n", envPort, defaultPort)
+		}
+	}
+
 	flag.StringVar(&cfg.WorkspacesRoot, "workspaces-root", os.Getenv("WORKSPACES_ROOT"), "Parent directory for all workspaces (env: WORKSPACES_ROOT)")
 	flag.StringVar(&cfg.Transport, "transport", os.Getenv("MCP_TRANSPORT"), "Transport to use: 'stdio' or 'http' (env: MCP_TRANSPORT)")
-	flag.IntVar(&cfg.Port, "port", 8080, "Port for HTTP transport (env: PORT)")
+	flag.StringVar(&cfg.Host, "host", defaultHost, "Host/IP to bind for HTTP transport (env: HOST)")
+	flag.IntVar(&cfg.Port, "port", defaultPort, "Port for HTTP transport (env: PORT)")
 	flag.StringVar(&cfg.LogFormat, "log-format", "text", "Log format: 'text' or 'json'")
 	flag.String("log-level", "info", "Log level: 'debug', 'info', 'warn', 'error'")
 	flag.Parse()
@@ -41,6 +57,8 @@ func main() {
 	slog.Info("Starting MCP Workspace Manager",
 		"version", "0.1.0",
 		"transport", cfg.Transport,
+		"host", cfg.Host,
+		"port", cfg.Port,
 		"workspaces-root", cfg.WorkspacesRoot,
 	)
 
@@ -51,21 +69,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	// --- Setup Tool Registry and Dispatcher ---
-	toolRegistry := tool.NewRegistry()
-	tool.RegisterWorkspaceTools(toolRegistry, workspaceManager)
-	tool.RegisterFSTools(toolRegistry, workspaceManager)
+	// Using MCP SDK server; tool registration happens inside mcpsdk.buildServer.
 
-	// The main handler now uses the registry to dispatch requests.
-	toolHandler := func(req *mcp.Request) *mcp.Response {
-		return toolRegistry.Dispatch(req)
-	}
-
-	// --- Start Transport Listener ---
+	// --- Start Transport Listener (MCP SDK) ---
 	if cfg.Transport == "http" {
-		transport.RunHTTP(cfg.Port, toolHandler)
+		mcpsdk.RunHTTP(cfg.Host, cfg.Port, workspaceManager)
 	} else {
-		transport.RunStdio(toolHandler)
+		mcpsdk.RunStdio(workspaceManager)
 	}
 }
 
@@ -78,6 +88,14 @@ func validateConfig(cfg *Config) error {
 	}
 	if cfg.Transport != "stdio" && cfg.Transport != "http" {
 		return fmt.Errorf("--transport must be 'stdio' or 'http'")
+	}
+	if cfg.Transport == "http" {
+		if cfg.Host == "" {
+			return fmt.Errorf("--host is required for HTTP transport")
+		}
+		if cfg.Port <= 0 || cfg.Port > 65535 {
+			return fmt.Errorf("--port must be between 1 and 65535")
+		}
 	}
 	return nil
 }

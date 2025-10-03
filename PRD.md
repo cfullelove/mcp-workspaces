@@ -90,7 +90,7 @@ Build a standalone Go application (single binary) that implements a Model Contex
 #### 3.1.4 Git Integration
 - Upon creation, each workspace directory shall be initialized as a Git repository.
 - All file system write operations (`write_file`, `edit_file`, `create_directory`, `move_file`) shall be automatically committed to the repository.
-- Commit messages shall be descriptive and automatically generated, indicating the tool that triggered the commit (e.g., "mcp/fs/write_file: Create users/data.txt").
+- Commit messages shall be descriptive and automatically generated, indicating the tool that triggered the commit (e.g., "mcp/fs_write_file: Create users/data.txt").
 
 #### 3.1.5 Tools (per workspace)
 
@@ -270,20 +270,20 @@ For each tool, inputs must include `workspaceId` and workspace-relative `path`(s
 
 ### 4.2 Tool naming
 - Tools should be named clearly; suggested names:
-  - `workspace/create`
-  - `fs/read_text_file`
-  - `fs/read_media_file`
-  - `fs/read_multiple_files`
-  - `fs/write_file`
-  - `fs/edit_file`
-  - `fs/create_directory`
-  - `fs/list_directory`
-  - `fs/list_directory_with_sizes`
-  - `fs/move_file`
-  - `fs/search_files`
-  - `fs/directory_tree`
-  - `fs/get_file_info`
-  - `fs/get_commit_history`
+  - `workspace_create`
+  - `fs_read_text_file`
+  - `fs_read_media_file`
+  - `fs_read_multiple_files`
+  - `fs_write_file`
+  - `fs_edit_file`
+  - `fs_create_directory`
+  - `fs_list_directory`
+  - `fs_list_directory_with_sizes`
+  - `fs_move_file`
+  - `fs_search_files`
+  - `fs_directory_tree`
+  - `fs_get_file_info`
+  - `fs_get_commit_history`
 
 ### 4.3 Versioning
 - Include an `x-server` info response tool (optional) returning `{ name, version, transport }` for diagnostics.
@@ -418,7 +418,7 @@ Note: Prior to implementation, verify availability of a Go MCP library providing
   - Register tools, implement request/response envelopes.
 
 - M3: Workspace create + Git Integration
-  - Update `workspace/create` to initialize a git repo.
+  - Update `workspace_create` to initialize a git repo.
   - Implement a git wrapper for staging and committing changes.
 
 - M4: Core FS tools with Git

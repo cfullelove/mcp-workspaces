@@ -1,174 +1,161 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
+	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// TestStdioTransport_WorkspaceCreate tests the workspace/create tool via the stdio transport.
-func TestStdioTransport_WorkspaceCreate(t *testing.T) {
-	// Build the binary to a temporary location to ensure we have the latest version.
-	tmpDir, err := os.MkdirTemp("", "mcp-test-bin")
+type wsCreateOut struct {
+	WorkspaceID string `json:"workspaceId"`
+	Path        string `json:"path"`
+}
+
+// helper: extract structured JSON from CallToolResult.Content (TextContent JSON) into out.
+func extractStructuredJSON(t *testing.T, res *sdkmcp.CallToolResult, out any) {
+	t.Helper()
+	if res == nil {
+		t.Fatalf("nil CallToolResult")
+	}
+	// Prefer Content as Text JSON (server sets StructuredContent and mirrors to TextContent if Content unset)
+	if res.Content == nil || len(res.Content) == 0 {
+		t.Fatalf("no content in result")
+	}
+	// First content item should be *mcp.TextContent with JSON string
+	txt, ok := res.Content[0].(*sdkmcp.TextContent)
+	require.True(t, ok, "expected TextContent in result content")
+	require.NotEmpty(t, txt.Text, "empty text content")
+	require.NoError(t, json.Unmarshal([]byte(txt.Text), out))
+}
+
+func TestStdio_WorkspaceCreate_SDK(t *testing.T) {
+	// Build the binary
+	tmpBinDir, err := os.MkdirTemp("", "mcp-ws-bin-stdio")
 	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+	defer os.RemoveAll(tmpBinDir)
 
-	binaryPath := filepath.Join(tmpDir, "mcp-workspace-manager")
-	buildCmd := exec.Command("go", "build", "-o", binaryPath, ".")
-	err = buildCmd.Run()
-	require.NoError(t, err, "Failed to build binary for testing")
+	binaryPath := filepath.Join(tmpBinDir, "mcp-workspace-manager")
+	if runtime.GOOS == "windows" {
+		binaryPath += ".exe"
+	}
+	build := exec.Command("go", "build", "-o", binaryPath, ".")
+	build.Env = os.Environ()
+	out, err := build.CombinedOutput()
+	require.NoError(t, err, "build failed: %s", string(out))
 
-	// Create a temporary workspace root for the test.
-	workspacesRoot, err := os.MkdirTemp("", "mcp-test-ws-root")
+	// Prepare workspace root
+	wsRoot, err := os.MkdirTemp("", "mcp-ws-root-stdio")
 	require.NoError(t, err)
-	defer os.RemoveAll(workspacesRoot)
+	defer os.RemoveAll(wsRoot)
 
-	// Run the application as a subprocess.
-	cmd := exec.Command(binaryPath, "--transport=stdio", "--workspaces-root="+workspacesRoot)
+	// Prepare client using CommandTransport to invoke the binary with stdio transport
+	cmd := exec.Command(binaryPath, "--transport=stdio", "--workspaces-root="+wsRoot)
+	transport := &sdkmcp.CommandTransport{Command: cmd}
 
-	stdin, err := cmd.StdinPipe()
+	client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "test-client", Version: "v0.0.0"}, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	session, err := client.Connect(ctx, transport, nil)
 	require.NoError(t, err)
-	defer stdin.Close()
+	defer session.Close()
 
-	stdout, err := cmd.StdoutPipe()
-	require.NoError(t, err)
-	defer stdout.Close()
-
-	// Start the command.
-	err = cmd.Start()
-	require.NoError(t, err)
-	defer cmd.Process.Kill()
-
-	// Prepare and send the request.
-	req := map[string]interface{}{
-		"id":   "1",
-		"tool": "workspace/create",
-		"params": map[string]string{
+	// Call workspace/create
+	params := &sdkmcp.CallToolParams{
+		Name: "workspace_create",
+		Arguments: map[string]any{
 			"name": "My Stdio Workspace",
 		},
 	}
-	reqBytes, err := json.Marshal(req)
+	res, err := session.CallTool(ctx, params)
 	require.NoError(t, err)
+	require.False(t, res.IsError, "tool error")
 
-	_, err = fmt.Fprintln(stdin, string(reqBytes))
-	require.NoError(t, err)
+	var outJSON wsCreateOut
+	extractStructuredJSON(t, res, &outJSON)
+	assert.Equal(t, "my-stdio-workspace", outJSON.WorkspaceID)
 
-	// Read the response.
-	reader := bufio.NewReader(stdout)
-	line, err := reader.ReadBytes('\n')
-	require.NoError(t, err, "Failed to read response from stdout")
-
-	// Unmarshal and verify the response.
-	var resp map[string]interface{}
-	err = json.Unmarshal(line, &resp)
-	require.NoError(t, err)
-
-	require.Nil(t, resp["error"], "Response should not contain an error")
-	require.NotNil(t, resp["result"], "Response should contain a result")
-
-	result := resp["result"].(map[string]interface{})
-	require.Equal(t, "my-stdio-workspace", result["workspaceId"])
-
-	// Verify that the workspace was actually created on disk.
-	wsPath := filepath.Join(workspacesRoot, "my-stdio-workspace")
-	_, err = os.Stat(wsPath)
-	require.NoError(t, err, "Workspace directory should have been created")
+	// Verify created dir
+	_, err = os.Stat(filepath.Join(wsRoot, "my-stdio-workspace"))
+	require.NoError(t, err, "workspace directory should exist")
 }
 
-func TestHttpTransport_WorkspaceCreate(t *testing.T) {
+func TestHTTP_Streamable_WorkspaceCreate_SDK(t *testing.T) {
 	// Build the binary
-	tmpDir, err := os.MkdirTemp("", "mcp-test-bin-http")
+	tmpBinDir, err := os.MkdirTemp("", "mcp-ws-bin-http")
 	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+	defer os.RemoveAll(tmpBinDir)
 
-	binaryPath := filepath.Join(tmpDir, "mcp-workspace-manager")
-	buildCmd := exec.Command("go", "build", "-o", binaryPath, ".")
-	err = buildCmd.Run()
-	require.NoError(t, err, "Failed to build binary for testing")
+	binaryPath := filepath.Join(tmpBinDir, "mcp-workspace-manager")
+	if runtime.GOOS == "windows" {
+		binaryPath += ".exe"
+	}
+	build := exec.Command("go", "build", "-o", binaryPath, ".")
+	build.Env = os.Environ()
+	out, err := build.CombinedOutput()
+	require.NoError(t, err, "build failed: %s", string(out))
 
-	// Create a temporary workspace root for the test.
-	workspacesRoot, err := os.MkdirTemp("", "mcp-test-ws-root-http")
+	// Prepare workspace root and start server
+	wsRoot, err := os.MkdirTemp("", "mcp-ws-root-http")
 	require.NoError(t, err)
-	defer os.RemoveAll(workspacesRoot)
+	defer os.RemoveAll(wsRoot)
 
-	// Run the application as a subprocess
-	port := "8081" // Use a fixed port for simplicity in testing
-	cmd := exec.Command(binaryPath, "--transport=http", "--port="+port, "--workspaces-root="+workspacesRoot)
-	err = cmd.Start()
+	host := "127.0.0.1"
+	port := "18081"
+	server := exec.Command(binaryPath, "--transport=http", "--host="+host, "--port="+port, "--workspaces-root="+wsRoot)
+	server.Stdout = os.Stdout
+	server.Stderr = os.Stderr
+	require.NoError(t, server.Start())
+	defer func() {
+		_ = server.Process.Kill()
+	}()
+
+	// Give server time to bind
+	time.Sleep(750 * time.Millisecond)
+
+	// Create client using Streamable client transport to /mcp
+	endpoint := fmt.Sprintf("http://%s:%s/mcp", host, port)
+	transport := &sdkmcp.StreamableClientTransport{
+		Endpoint: endpoint,
+	}
+
+	client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "test-client", Version: "v0.0.0"}, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
+
+	session, err := client.Connect(ctx, transport, nil)
 	require.NoError(t, err)
-	defer cmd.Process.Kill()
+	defer session.Close()
 
-	// Give the server a moment to start. In a real test suite, you'd poll the health endpoint.
-	time.Sleep(1 * time.Second)
-
-	// --- 1. Connect to the SSE stream ---
-	sseResp, err := http.Get("http://localhost:" + port + "/mcp/stream")
-	require.NoError(t, err)
-	defer sseResp.Body.Close()
-	require.Equal(t, http.StatusOK, sseResp.StatusCode)
-
-	sseReader := bufio.NewReader(sseResp.Body)
-
-	// --- 2. Get the Client ID from the first event ---
-	line, err := sseReader.ReadString('\n') // event: connection_ready
-	require.NoError(t, err)
-	line, err = sseReader.ReadString('\n') // data: {"clientId":"..."}
-	require.NoError(t, err)
-
-	var connectResp map[string]string
-	// The data part of the event is `{"clientId":"..."}`
-	err = json.Unmarshal([]byte(line[6:]), &connectResp)
-	require.NoError(t, err)
-	clientID := connectResp["clientId"]
-	require.NotEmpty(t, clientID)
-
-	_, err = sseReader.ReadString('\n') // Read the trailing newline
-	require.NoError(t, err)
-
-	// --- 3. Send the command ---
-	createReq := map[string]interface{}{
-		"id":   "2",
-		"tool": "workspace/create",
-		"params": map[string]string{
+	// Call workspace/create
+	params := &sdkmcp.CallToolParams{
+		Name: "workspace_create",
+		Arguments: map[string]any{
 			"name": "My HTTP Workspace",
 		},
 	}
-	reqBody, err := json.Marshal(createReq)
+	res, err := session.CallTool(ctx, params)
+	if err != nil {
+		log.Printf("CallTool error: %v", err)
+	}
 	require.NoError(t, err)
+	require.False(t, res.IsError, "tool error")
 
-	httpReq, err := http.NewRequest(http.MethodPost, "http://localhost:"+port+"/mcp/command", bytes.NewReader(reqBody))
-	require.NoError(t, err)
-	httpReq.Header.Set("X-MCP-Client-ID", clientID)
-	httpReq.Header.Set("Content-Type", "application/json")
+	var outJSON wsCreateOut
+	extractStructuredJSON(t, res, &outJSON)
+	assert.Equal(t, "my-http-workspace", outJSON.WorkspaceID)
 
-	postResp, err := http.DefaultClient.Do(httpReq)
-	require.NoError(t, err)
-	require.Equal(t, http.StatusAccepted, postResp.StatusCode)
-
-	// --- 4. Read the response from the SSE stream ---
-	line, err = sseReader.ReadString('\n') // data: {"id":"2", "result":{...}}
-	require.NoError(t, err)
-
-	var resp map[string]interface{}
-	err = json.Unmarshal([]byte(line[5:]), &resp)
-	require.NoError(t, err)
-
-	require.Nil(t, resp["error"], "Response should not contain an error")
-	result := resp["result"].(map[string]interface{})
-	assert.Equal(t, "my-http-workspace", result["workspaceId"])
-
-	// Verify that the workspace was actually created on disk.
-	wsPath := filepath.Join(workspacesRoot, "my-http-workspace")
-	_, err = os.Stat(wsPath)
-	require.NoError(t, err, "Workspace directory should have been created")
+	_, err = os.Stat(filepath.Join(wsRoot, "my-http-workspace"))
+	require.NoError(t, err, "workspace directory should exist")
 }
