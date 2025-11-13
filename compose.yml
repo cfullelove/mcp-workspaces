@@ -6,6 +6,7 @@ services:
       - "8080:8080"
     volumes:
       - ./mcp-workspace-manager:/usr/local/bin/mcp-workspace-manager
+      - ./workspaces:/opt/workspaces
     command: [ "/usr/local/bin/mcp-workspace-manager", "--workspaces-root=/opt/workspaces", "--transport=http", "--host=0.0.0.0", "--port=8080" ]
   frontend:
     build:

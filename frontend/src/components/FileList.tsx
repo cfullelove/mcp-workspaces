@@ -1,16 +1,20 @@
 import React, { useEffect, useState } from 'react';
 import api from '../services/api';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import FileTree from './FileTree';
 import { Button } from './ui/button';
+import { FilePlus, FolderPlus } from 'lucide-react';
 
 interface FileListProps {
   workspaceId: string;
   onSelectFile: (filePath: string) => void;
   refetch: boolean;
   setRefetch: (refetch: boolean) => void;
+  openNewFile: () => void;
+  openNewDir: () => void;
 }
 
-const FileList: React.FC<FileListProps> = ({ workspaceId, onSelectFile, refetch, setRefetch }) => {
+const FileList: React.FC<FileListProps> = ({ workspaceId, onSelectFile, refetch, setRefetch, openNewFile, openNewDir }) => {
   const [files, setFiles] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
 
@@ -28,59 +32,37 @@ const FileList: React.FC<FileListProps> = ({ workspaceId, onSelectFile, refetch,
     fetchFiles();
   }, [workspaceId, refetch]);
 
-  const handleDelete = async (filePath: string) => {
-    try {
-      // a file path is prefixed with [FILE] or [DIR], so we need to remove that
-      const pathToDelete = filePath.substring(filePath.indexOf(' ') + 1);
-      await api.deleteFile(workspaceId, pathToDelete);
-      setRefetch(!refetch);
-    } catch (err) {
-      console.error('Failed to delete file', err);
-    }
-  };
-
-  const handleRename = async (filePath: string) => {
-    const newName = prompt('Enter new name');
-    if (!newName) return;
-    try {
-      const oldPath = filePath.substring(filePath.indexOf(' ') + 1);
-      await api.moveFile(workspaceId, oldPath, newName);
-      setRefetch(!refetch);
-    } catch (err) {
-      console.error('Failed to rename file', err);
-    }
-  };
-
   if (error) {
     return <p className="text-red-500">{error}</p>;
   }
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle>Files</CardTitle>
+        <div className="space-x-2">
+          <Button variant="outline" size="sm" onClick={openNewFile}>
+            <FilePlus size={16} className="mr-2" />
+            New File
+          </Button>
+          <Button variant="outline" size="sm" onClick={openNewDir}>
+            <FolderPlus size={16} className="mr-2" />
+            New Directory
+          </Button>
+        </div>
       </CardHeader>
       <CardContent>
-        <ul>
-          {files.map((file) => (
-            <li key={file} className="flex justify-between items-center mb-2">
-              <span
-                onClick={() => onSelectFile(file)}
-                className="cursor-pointer hover:underline"
-              >
-                {file}
-              </span>
-              <div>
-                <Button variant="outline" size="sm" onClick={() => handleRename(file)} className="mr-2">
-                  Rename
-                </Button>
-                <Button variant="destructive" size="sm" onClick={() => handleDelete(file)}>
-                  Delete
-                </Button>
-              </div>
-            </li>
-          ))}
-        </ul>
+        {files.map((file) => (
+          <FileTree
+            key={file}
+            workspaceId={workspaceId}
+            entry={file}
+            parentPath=""
+            onSelectFile={onSelectFile}
+            level={0}
+            refetch={() => setRefetch(!refetch)}
+          />
+        ))}
       </CardContent>
     </Card>
   );

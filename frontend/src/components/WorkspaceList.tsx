@@ -11,16 +11,17 @@ interface WorkspaceListProps {
   onSelectWorkspace: (workspaceId: string) => void;
   refetch: boolean;
   setRefetch: (refetch: boolean) => void;
+  selectedWorkspace: string;
 }
 
-const WorkspaceList: React.FC<WorkspaceListProps> = ({ onSelectWorkspace, refetch, setRefetch }) => {
+const WorkspaceList: React.FC<WorkspaceListProps> = ({ onSelectWorkspace, refetch, setRefetch, selectedWorkspace }) => {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const fetchWorkspaces = async () => {
     try {
       const response = await api.listWorkspaces();
-      setWorkspaces(response.workspaces);
+      setWorkspaces(response.workspaces || []);
     } catch (err) {
       setError('Failed to fetch workspaces');
     }
@@ -40,12 +41,14 @@ const WorkspaceList: React.FC<WorkspaceListProps> = ({ onSelectWorkspace, refetc
         <CardTitle>Workspaces</CardTitle>
       </CardHeader>
       <CardContent>
-        <ul>
+        <ul className="space-y-2">
           {workspaces.map((workspace) => (
             <li
               key={workspace.name}
               onClick={() => onSelectWorkspace(workspace.name)}
-              className="cursor-pointer hover:bg-gray-100 p-2 rounded"
+              className={`cursor-pointer p-2 rounded ${
+                selectedWorkspace === workspace.name ? 'bg-blue-100' : 'hover:bg-gray-100'
+              }`}
             >
               {workspace.name}
             </li>
