@@ -4,7 +4,6 @@ import FileTree from './FileTree';
 import api from '../services/api';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import { Textarea } from './ui/textarea';
 import { Label } from './ui/label';
 import {
   Dialog,
@@ -13,7 +12,7 @@ import {
   DialogTitle,
   DialogClose,
 } from "./ui/dialog";
-import { Plus, FilePlus, FolderPlus } from 'lucide-react';
+import { Plus, FilePlus, FolderPlus, Check, X } from 'lucide-react';
 
 interface WorkspaceBrowserProps {
   onLogout: () => void;
@@ -22,13 +21,15 @@ interface WorkspaceBrowserProps {
 const WorkspaceBrowser: React.FC<WorkspaceBrowserProps> = ({ onLogout }) => {
   const [selectedWorkspace, setSelectedWorkspace] = useState<string>('');
   const [selectedFile, setSelectedFile] = useState<string>('');
-  const [newFileName, setNewFileName] = useState<string>('');
-  const [newFileContent, setNewFileContent] = useState<string>('');
-  const [newDirName, setNewDirName] = useState<string>('');
   const [refetchWorkspaces, setRefetchWorkspaces] = useState<boolean>(false);
   const [refetchFiles, setRefetchFiles] = useState<boolean>(false);
-  const [isFileOpen, setIsFileOpen] = useState(false);
-  const [isDirOpen, setIsDirOpen] = useState(false);
+  const [selectedDirectory, setSelectedDirectory] = useState<string>('');
+  const [selectedPath, setSelectedPath] = useState<string>('');
+  const [selectedType, setSelectedType] = useState<'file' | 'dir' | ''>('');
+  // Inline create state
+  const [pendingCreateType, setPendingCreateType] = useState<'' | 'file' | 'dir'>('');
+  const [pendingCreateDir, setPendingCreateDir] = useState<string>('');
+  const [rootCreateName, setRootCreateName] = useState<string>('');
 
   // Workspaces dropdown + create dialog
   const [workspaces, setWorkspaces] = useState<{ name: string; path: string }[]>([]);
@@ -42,7 +43,13 @@ const WorkspaceBrowser: React.FC<WorkspaceBrowserProps> = ({ onLogout }) => {
   const handleSelectFile = (filePath: string) => {
     const isFile = filePath.startsWith('[FILE]');
     if (isFile) {
-      setSelectedFile(filePath.substring(filePath.indexOf(' ') + 1));
+      const rel = filePath.substring(filePath.indexOf(' ') + 1);
+      setSelectedFile(rel);
+      setSelectedType('file');
+      setSelectedPath(rel);
+      const lastSlash = rel.lastIndexOf('/');
+      const parent = lastSlash > -1 ? rel.substring(0, lastSlash) : '';
+      setSelectedDirectory(parent);
     } else {
       setSelectedFile('');
     }
@@ -95,30 +102,7 @@ const WorkspaceBrowser: React.FC<WorkspaceBrowserProps> = ({ onLogout }) => {
   };
 
 
-  const handleCreateFile = async () => {
-    if (!selectedWorkspace || !newFileName) return;
-    try {
-      await api.writeFile(selectedWorkspace, newFileName, newFileContent);
-      setNewFileName('');
-      setNewFileContent('');
-      setRefetchFiles(!refetchFiles);
-      setIsFileOpen(false);
-    } catch (err) {
-      console.error('Failed to create file', err);
-    }
-  };
 
-  const handleCreateDirectory = async () => {
-    if (!selectedWorkspace || !newDirName) return;
-    try {
-      await api.createDirectory(selectedWorkspace, newDirName);
-      setNewDirName('');
-      setRefetchFiles(!refetchFiles);
-      setIsDirOpen(false);
-    } catch (err) {
-      console.error('Failed to create directory', err);
-    }
-  };
 
   return (
     <div className="flex h-screen bg-gray-50">
@@ -132,6 +116,9 @@ const WorkspaceBrowser: React.FC<WorkspaceBrowserProps> = ({ onLogout }) => {
               onChange={(e) => {
                 setSelectedWorkspace(e.target.value);
                 setSelectedFile('');
+                setSelectedDirectory('');
+                setSelectedType('');
+                setSelectedPath('');
               }}
             >
               <option value="" disabled>Select workspace</option>
@@ -157,17 +144,113 @@ const WorkspaceBrowser: React.FC<WorkspaceBrowserProps> = ({ onLogout }) => {
             <>
               <div className="flex items-center justify-between mb-2">
                 <div className="space-x-2">
-                  <Button variant="outline" size="sm" onClick={() => setIsFileOpen(true)}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const base = selectedDirectory || (selectedFile ? selectedFile.substring(0, selectedFile.lastIndexOf('/')) : '');
+                      setPendingCreateType('file');
+                      setPendingCreateDir(base || '');
+                      if (!base) {
+                        setRootCreateName('');
+                      }
+                    }}
+                  >
                     <FilePlus className="mr-2 h-4 w-4" />
                     New File
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => setIsDirOpen(true)}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const base = selectedDirectory || (selectedFile ? selectedFile.substring(0, selectedFile.lastIndexOf('/')) : '');
+                      setPendingCreateType('dir');
+                      setPendingCreateDir(base || '');
+                      if (!base) {
+                        setRootCreateName('');
+                      }
+                    }}
+                  >
                     <FolderPlus className="mr-2 h-4 w-4" />
                     New Directory
                   </Button>
                 </div>
               </div>
               <div>
+                {pendingCreateType && pendingCreateDir === '' && (
+                  <div
+                    className="flex items-center p-1"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <Input
+                      type="text"
+                      value={rootCreateName}
+                      onChange={(e) => setRootCreateName(e.target.value)}
+                      onKeyDown={async (e) => {
+                        if (e.key === 'Enter' && selectedWorkspace && rootCreateName.trim()) {
+                          try {
+                            if (pendingCreateType === 'file') {
+                              await api.writeFile(selectedWorkspace, rootCreateName.trim(), '');
+                            } else if (pendingCreateType === 'dir') {
+                              await api.createDirectory(selectedWorkspace, rootCreateName.trim());
+                            }
+                            setRootCreateName('');
+                            setPendingCreateType('');
+                            setPendingCreateDir('');
+                            setRefetchFiles(!refetchFiles);
+                          } catch (err) {
+                            console.error('Failed to create at root', err);
+                          }
+                        }
+                        if (e.key === 'Escape') {
+                          setPendingCreateType('');
+                          setPendingCreateDir('');
+                          setRootCreateName('');
+                        }
+                      }}
+                      autoFocus
+                      className="h-8"
+                    />
+                    <div className="ml-2 flex items-center space-x-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={async () => {
+                          if (!selectedWorkspace || !rootCreateName.trim()) return;
+                          try {
+                            if (pendingCreateType === 'file') {
+                              await api.writeFile(selectedWorkspace, rootCreateName.trim(), '');
+                            } else if (pendingCreateType === 'dir') {
+                              await api.createDirectory(selectedWorkspace, rootCreateName.trim());
+                            }
+                            setRootCreateName('');
+                            setPendingCreateType('');
+                            setPendingCreateDir('');
+                            setRefetchFiles(!refetchFiles);
+                          } catch (err) {
+                            console.error('Failed to create at root', err);
+                          }
+                        }}
+                        disabled={!rootCreateName.trim()}
+                        aria-label="Create"
+                      >
+                        <Check className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => {
+                          setPendingCreateType('');
+                          setPendingCreateDir('');
+                          setRootCreateName('');
+                        }}
+                        aria-label="Cancel"
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
                 {rootEntries.map((entry) => (
                   <FileTree
                     key={entry}
@@ -175,6 +258,30 @@ const WorkspaceBrowser: React.FC<WorkspaceBrowserProps> = ({ onLogout }) => {
                     entry={entry}
                     parentPath=""
                     onSelectFile={handleSelectFile}
+                    onSelectDirectory={(dir) => { setSelectedDirectory(dir); setSelectedType('dir'); setSelectedPath(dir); }}
+                    selectedPath={selectedPath}
+                    selectedType={selectedType}
+                    createTargetPath={pendingCreateDir}
+                    createType={pendingCreateType}
+                    onCreateInline={async (name, dirPath, type) => {
+                      if (!selectedWorkspace) return;
+                      try {
+                        if (type === 'file') {
+                          await api.writeFile(selectedWorkspace, `${dirPath}/${name}`, '');
+                        } else if (type === 'dir') {
+                          await api.createDirectory(selectedWorkspace, `${dirPath}/${name}`);
+                        }
+                        setPendingCreateType('');
+                        setPendingCreateDir('');
+                        setRefetchFiles(!refetchFiles);
+                      } catch (err) {
+                        console.error('Failed to create item', err);
+                      }
+                    }}
+                    onCancelCreateInline={() => {
+                      setPendingCreateType('');
+                      setPendingCreateDir('');
+                    }}
                     level={0}
                     refetch={() => setRefetchFiles(!refetchFiles)}
                   />
@@ -233,54 +340,7 @@ const WorkspaceBrowser: React.FC<WorkspaceBrowserProps> = ({ onLogout }) => {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isFileOpen} onOpenChange={setIsFileOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Create New File</DialogTitle>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="fileName" className="text-right">Name</Label>
-              <Input
-                id="fileName"
-                value={newFileName}
-                onChange={(e) => setNewFileName(e.target.value)}
-                className="col-span-3"
-              />
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="fileContent" className="text-right">Content</Label>
-              <Textarea
-                id="fileContent"
-                value={newFileContent}
-                onChange={(e) => setNewFileContent(e.target.value)}
-                className="col-span-3"
-              />
-            </div>
-            <Button onClick={handleCreateFile}>Create File</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
 
-      <Dialog open={isDirOpen} onOpenChange={setIsDirOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Create New Directory</DialogTitle>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="dirName" className="text-right">Name</Label>
-              <Input
-                id="dirName"
-                value={newDirName}
-                onChange={(e) => setNewDirName(e.target.value)}
-                className="col-span-3"
-              />
-            </div>
-            <Button onClick={handleCreateDirectory}>Create Directory</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 };

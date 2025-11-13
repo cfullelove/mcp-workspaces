@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
-import { Folder, File, ChevronRight, ChevronDown, Edit, Trash } from 'lucide-react';
+import { Folder, File, ChevronRight, ChevronDown, Edit, Trash, Check, X } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 
@@ -9,15 +9,23 @@ interface FileTreeProps {
   entry: string;
   parentPath: string;
   onSelectFile: (filePath: string) => void;
+  onSelectDirectory?: (dirPath: string) => void;
+  selectedPath?: string;
+  selectedType?: 'file' | 'dir' | '';
+  createTargetPath?: string;
+  createType?: 'file' | 'dir' | '';
+  onCreateInline?: (name: string, dirPath: string, type: 'file' | 'dir') => void;
+  onCancelCreateInline?: () => void;
   level: number;
   refetch: () => void;
 }
 
-const FileTree: React.FC<FileTreeProps> = ({ workspaceId, entry, parentPath, onSelectFile, level, refetch }) => {
+const FileTree: React.FC<FileTreeProps> = ({ workspaceId, entry, parentPath, onSelectFile, onSelectDirectory, selectedPath, selectedType, createTargetPath, createType, onCreateInline, onCancelCreateInline, level, refetch }) => {
   const [entries, setEntries] = useState<string[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const [newName, setNewName] = useState('');
+  const [createName, setCreateName] = useState('');
 
   const isDirectory = (entryStr: string) => entryStr.startsWith('[DIR]');
   const getEntryName = (entryStr: string) => entryStr.substring(entryStr.indexOf(' ') + 1);
@@ -28,7 +36,7 @@ const FileTree: React.FC<FileTreeProps> = ({ workspaceId, entry, parentPath, onS
     if (!isDirectory(entry)) return;
     try {
       const response = await api.listDirectory(workspaceId, fullPath);
-      setEntries(response.entries);
+      setEntries(response.entries || []);
     } catch (error) {
       console.error(`Failed to fetch entries for ${fullPath}`, error);
     }
@@ -40,12 +48,21 @@ const FileTree: React.FC<FileTreeProps> = ({ workspaceId, entry, parentPath, onS
     }
   }, [isOpen, refetch]);
 
+  useEffect(() => {
+    if (createTargetPath === fullPath && createType && !isOpen) {
+      setIsOpen(true);
+    }
+  }, [createTargetPath, createType]);
+
   const handleToggle = () => {
     setIsOpen(!isOpen);
+    if (onSelectDirectory) {
+      onSelectDirectory(fullPath);
+    }
   };
 
   const handleSelect = () => {
-    onSelectFile(entry);
+    onSelectFile(`[FILE] ${fullPath}`);
   };
 
   const handleDelete = async () => {
@@ -122,13 +139,65 @@ const FileTree: React.FC<FileTreeProps> = ({ workspaceId, entry, parentPath, onS
     return (
       <div>
         <div
-          className="flex items-center cursor-pointer p-1 rounded hover:bg-gray-100"
+          className={`flex items-center cursor-pointer p-1 h-10 rounded hover:bg-gray-100 ${selectedType === 'dir' && selectedPath === fullPath ? 'bg-blue-100' : ''}`}
           style={{ paddingLeft: `${level * 1.5}rem` }}
         >
           {isRenaming ? renamingContent : itemContent}
         </div>
         {isOpen && (
           <div>
+            {createTargetPath === fullPath && createType && (
+              <div
+                className="flex items-center p-1"
+                style={{ paddingLeft: `${(level + 1) * 1.5}rem` }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <Input
+                  type="text"
+                  value={createName}
+                  onChange={(e) => setCreateName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && onCreateInline && createName.trim()) {
+                      onCreateInline(createName.trim(), fullPath, createType);
+                      setCreateName('');
+                    }
+                    if (e.key === 'Escape') {
+                      onCancelCreateInline && onCancelCreateInline();
+                      setCreateName('');
+                    }
+                  }}
+                  autoFocus
+                  className="h-8"
+                />
+                <div className="ml-2 flex items-center space-x-1">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => {
+                      if (onCreateInline && createName.trim()) {
+                        onCreateInline(createName.trim(), fullPath, createType);
+                        setCreateName('');
+                      }
+                    }}
+                    disabled={!createName.trim()}
+                    aria-label="Create"
+                  >
+                    <Check className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => {
+                      onCancelCreateInline && onCancelCreateInline();
+                      setCreateName('');
+                    }}
+                    aria-label="Cancel"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
             {entries.map((childEntry) => (
               <FileTree
                 key={childEntry}
@@ -136,6 +205,13 @@ const FileTree: React.FC<FileTreeProps> = ({ workspaceId, entry, parentPath, onS
                 entry={childEntry}
                 parentPath={fullPath}
                 onSelectFile={onSelectFile}
+                onSelectDirectory={onSelectDirectory}
+                selectedPath={selectedPath}
+                selectedType={selectedType}
+                createTargetPath={createTargetPath}
+                createType={createType}
+                onCreateInline={onCreateInline}
+                onCancelCreateInline={onCancelCreateInline}
                 level={level + 1}
                 refetch={refetch}
               />
@@ -148,7 +224,7 @@ const FileTree: React.FC<FileTreeProps> = ({ workspaceId, entry, parentPath, onS
 
   return (
     <div
-      className="flex items-center cursor-pointer p-1 rounded hover:bg-gray-100"
+      className={`flex items-center cursor-pointer p-1 h-10 rounded hover:bg-gray-100 ${selectedType === 'file' && selectedPath === fullPath ? 'bg-blue-100' : ''}`}
       style={{ paddingLeft: `${level * 1.5}rem` }}
     >
       {isRenaming ? renamingContent : itemContent}
