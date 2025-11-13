@@ -6,7 +6,6 @@ import api from '../services/api';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Label } from './ui/label';
 import {
   Dialog,
@@ -22,7 +21,6 @@ interface WorkspaceBrowserProps {
 const WorkspaceBrowser: React.FC<WorkspaceBrowserProps> = ({ onLogout }) => {
   const [selectedWorkspace, setSelectedWorkspace] = useState<string>('');
   const [selectedFile, setSelectedFile] = useState<string>('');
-  const [newWorkspaceName, setNewWorkspaceName] = useState<string>('');
   const [newFileName, setNewFileName] = useState<string>('');
   const [newFileContent, setNewFileContent] = useState<string>('');
   const [newDirName, setNewDirName] = useState<string>('');
@@ -40,16 +38,6 @@ const WorkspaceBrowser: React.FC<WorkspaceBrowserProps> = ({ onLogout }) => {
     }
   };
 
-  const handleCreateWorkspace = async () => {
-    if (!newWorkspaceName) return;
-    try {
-      await api.createWorkspace(newWorkspaceName);
-      setNewWorkspaceName('');
-      setRefetchWorkspaces(!refetchWorkspaces);
-    } catch (err) {
-      console.error('Failed to create workspace', err);
-    }
-  };
 
   const handleCreateFile = async () => {
     if (!selectedWorkspace || !newFileName) return;
@@ -85,24 +73,6 @@ const WorkspaceBrowser: React.FC<WorkspaceBrowserProps> = ({ onLogout }) => {
             <h1 className="text-xl font-semibold">Workspaces</h1>
             <Button variant="outline" size="sm" onClick={onLogout}>Logout</Button>
           </div>
-        </div>
-        <div className="p-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Create New Workspace</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex space-x-2">
-                <Input
-                  type="text"
-                  placeholder="Workspace name"
-                  value={newWorkspaceName}
-                  onChange={(e) => setNewWorkspaceName(e.target.value)}
-                />
-                <Button onClick={handleCreateWorkspace}>Create</Button>
-              </div>
-            </CardContent>
-          </Card>
         </div>
         <div className="flex-grow p-4 overflow-y-auto">
           <WorkspaceList
