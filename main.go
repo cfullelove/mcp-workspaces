@@ -19,6 +19,7 @@ type Config struct {
 	Port           int
 	LogFormat      string
 	LogLevel       slog.Level
+	AuthTokens     []string
 }
 
 func main() {
@@ -44,6 +45,12 @@ func main() {
 	flag.IntVar(&cfg.Port, "port", defaultPort, "Port for HTTP transport (env: PORT)")
 	flag.StringVar(&cfg.LogFormat, "log-format", "text", "Log format: 'text' or 'json'")
 	flag.String("log-level", "info", "Log level: 'debug', 'info', 'warn', 'error'")
+
+	var authTokensCSV string
+	var authTokenSingle string
+	flag.StringVar(&authTokensCSV, "auth-tokens", os.Getenv("AUTH_BEARER_TOKENS"), "Comma-separated list of Bearer tokens for HTTP auth (env: AUTH_BEARER_TOKENS)")
+	flag.StringVar(&authTokenSingle, "auth-token", os.Getenv("AUTH_BEARER_TOKEN"), "Single Bearer token for HTTP auth (env: AUTH_BEARER_TOKEN)")
+
 	flag.Parse()
 
 	if err := validateConfig(cfg); err != nil {
@@ -54,12 +61,16 @@ func main() {
 
 	setupLogger(cfg)
 
+	cfg.AuthTokens = collectAuthTokens(authTokensCSV, authTokenSingle)
+
 	slog.Info("Starting MCP Workspace Manager",
 		"version", "0.1.0",
 		"transport", cfg.Transport,
 		"host", cfg.Host,
 		"port", cfg.Port,
 		"workspaces-root", cfg.WorkspacesRoot,
+		"auth_enabled", len(cfg.AuthTokens) > 0,
+		"auth_tokens", len(cfg.AuthTokens),
 	)
 
 	// --- Initialize Managers and Services ---
@@ -73,7 +84,7 @@ func main() {
 
 	// --- Start Transport Listener (MCP SDK) ---
 	if cfg.Transport == "http" {
-		mcpsdk.RunHTTP(cfg.Host, cfg.Port, workspaceManager)
+		mcpsdk.RunHTTP(cfg.Host, cfg.Port, workspaceManager, cfg.AuthTokens)
 	} else {
 		mcpsdk.RunStdio(workspaceManager)
 	}
@@ -121,4 +132,29 @@ func setupLogger(cfg *Config) {
 		logHandler = slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: cfg.LogLevel})
 	}
 	slog.SetDefault(slog.New(logHandler))
+}
+
+func collectAuthTokens(csv string, single string) []string {
+	var out []string
+	seen := map[string]struct{}{}
+	add := func(s string) {
+		if s == "" {
+			return
+		}
+		if _, ok := seen[s]; ok {
+			return
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+	for _, part := range strings.Split(csv, ",") {
+		p := strings.TrimSpace(part)
+		if p != "" {
+			add(p)
+		}
+	}
+	if strings.TrimSpace(single) != "" {
+		add(strings.TrimSpace(single))
+	}
+	return out
 }
