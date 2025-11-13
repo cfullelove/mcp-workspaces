@@ -1,15 +1,21 @@
 package main
 
 import (
+	"embed"
 	"flag"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"mcp-workspace-manager/pkg/mcpsdk"
 	"mcp-workspace-manager/pkg/workspace"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
 )
+
+//go:embed all:frontend/dist
+var embeddedFiles embed.FS
 
 // Config holds the application configuration.
 type Config struct {
@@ -84,7 +90,13 @@ func main() {
 
 	// --- Start Transport Listener (MCP SDK) ---
 	if cfg.Transport == "http" {
-		mcpsdk.RunHTTP(cfg.Host, cfg.Port, workspaceManager, cfg.AuthTokens)
+		fsys, err := fs.Sub(embeddedFiles, "frontend/dist")
+		if err != nil {
+			slog.Error("Failed to create frontend file system", "error", err)
+			os.Exit(1)
+		}
+		rootHandler := http.FileServer(http.FS(fsys))
+		mcpsdk.RunHTTP(cfg.Host, cfg.Port, workspaceManager, cfg.AuthTokens, rootHandler)
 	} else {
 		mcpsdk.RunStdio(workspaceManager)
 	}

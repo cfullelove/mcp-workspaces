@@ -34,6 +34,17 @@ type CreateWorkspaceResponse struct {
 	Path        string `json:"path"`
 }
 
+type ListWorkspacesRequest struct{}
+
+type WorkspaceInfo struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
+type ListWorkspacesResponse struct {
+	Workspaces []WorkspaceInfo `json:"workspaces"`
+}
+
 // ===== FS tool types =====
 
 type WriteFileRequest struct {
@@ -207,6 +218,16 @@ type ReadMediaFileResponse struct {
 	Size     int64  `json:"size"`
 }
 
+type DeleteFileRequest struct {
+	WorkspaceID string `json:"workspaceId"`
+	Path        string `json:"path"`
+}
+
+type DeleteFileResponse struct {
+	Path   string `json:"path"`
+	Commit string `json:"commit"`
+}
+
 // buildServer constructs an MCP SDK server and registers tools using typed handlers.
 // Each tool delegates to a shared implementation in tools.go so both MCP and REST share logic.
 func buildServer(wm *workspace.Manager) *sdkmcp.Server {
@@ -224,6 +245,19 @@ func buildServer(wm *workspace.Manager) *sdkmcp.Server {
 			out, err := WorkspaceCreate(ctx, wm, input)
 			if err != nil {
 				return nil, CreateWorkspaceResponse{}, err
+			}
+			return nil, out, nil
+		},
+	)
+
+	// workspace/list
+	sdkmcp.AddTool[ListWorkspacesRequest, ListWorkspacesResponse](
+		server,
+		newTool("workspace_list", "List available workspaces"),
+		func(ctx context.Context, req *sdkmcp.CallToolRequest, input ListWorkspacesRequest) (*sdkmcp.CallToolResult, ListWorkspacesResponse, error) {
+			out, err := WorkspaceList(ctx, wm, input)
+			if err != nil {
+				return nil, ListWorkspacesResponse{}, err
 			}
 			return nil, out, nil
 		},
@@ -368,6 +402,19 @@ func buildServer(wm *workspace.Manager) *sdkmcp.Server {
 			out, err := FSReadMediaFile(ctx, wm, a)
 			if err != nil {
 				return nil, ReadMediaFileResponse{}, err
+			}
+			return nil, out, nil
+		},
+	)
+
+	// fs/delete_file
+	sdkmcp.AddTool[DeleteFileRequest, DeleteFileResponse](
+		server,
+		newTool("fs_delete_file", "Delete a file or directory"),
+		func(ctx context.Context, req *sdkmcp.CallToolRequest, input DeleteFileRequest) (*sdkmcp.CallToolResult, DeleteFileResponse, error) {
+			out, err := FSDeleteFile(ctx, wm, input)
+			if err != nil {
+				return nil, DeleteFileResponse{}, err
 			}
 			return nil, out, nil
 		},

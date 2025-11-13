@@ -30,6 +30,21 @@ func WorkspaceCreate(ctx context.Context, wm *workspace.Manager, input CreateWor
 	return CreateWorkspaceResponse{WorkspaceID: id, Path: path}, nil
 }
 
+func WorkspaceList(ctx context.Context, wm *workspace.Manager, input ListWorkspacesRequest) (ListWorkspacesResponse, error) {
+	workspaces, err := wm.List()
+	if err != nil {
+		return ListWorkspacesResponse{}, err
+	}
+	var out []WorkspaceInfo
+	for _, w := range workspaces {
+		out = append(out, WorkspaceInfo{
+			Name: w.Name,
+			Path: w.Path,
+		})
+	}
+	return ListWorkspacesResponse{Workspaces: out}, nil
+}
+
 func FSWriteFile(ctx context.Context, wm *workspace.Manager, a WriteFileRequest) (WriteFileResponse, error) {
 	if a.WorkspaceID == "" || a.Path == "" {
 		return WriteFileResponse{}, fmt.Errorf("INVALID_INPUT: 'workspaceId' and 'path' are required")
@@ -402,3 +417,21 @@ func FSReadMediaFile(ctx context.Context, wm *workspace.Manager, a ReadMediaFile
 
 // Helper used by REST layer to detect EOF in some contexts.
 var _ = io.EOF
+
+func FSDeleteFile(ctx context.Context, wm *workspace.Manager, a DeleteFileRequest) (DeleteFileResponse, error) {
+	if a.WorkspaceID == "" || a.Path == "" {
+		return DeleteFileResponse{}, fmt.Errorf("INVALID_INPUT: 'workspaceId' and 'path' are required")
+	}
+	absPath, err := wm.SafePath(a.WorkspaceID, a.Path)
+	if err != nil {
+		return DeleteFileResponse{}, fmt.Errorf("OUT_OF_BOUNDS: %v", err)
+	}
+	if err := os.RemoveAll(absPath); err != nil {
+		return DeleteFileResponse{}, fmt.Errorf("INTERNAL: failed to delete file: %v", err)
+	}
+	commit, err := wm.Commit(a.WorkspaceID, fmt.Sprintf("mcp/fs_delete_file: Delete %s", a.Path), "mcp-client")
+	if err != nil {
+		return DeleteFileResponse{}, fmt.Errorf("INTERNAL: failed to commit changes: %v", err)
+	}
+	return DeleteFileResponse{Path: a.Path, Commit: commit}, nil
+}
