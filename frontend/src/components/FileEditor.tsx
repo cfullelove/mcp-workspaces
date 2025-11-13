@@ -51,7 +51,7 @@ const FileEditor: React.FC<FileEditorProps> = ({ workspaceId, filePath }) => {
           onChange={(e) => setContent(e.target.value)}
           className="h-96"
         />
-        <Button onClick={handleSave} className="mt-4">
+        <Button variant="outline" onClick={handleSave} className="mt-4">
           Save
         </Button>
       </CardContent>
