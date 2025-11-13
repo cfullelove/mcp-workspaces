@@ -1,4 +1,4 @@
-const API_BASE_URL = '/api';
+const API_BASE_URL = "/api";
 
 // In a real application, this would be stored securely (e.g., in localStorage or a cookie)
 let authToken: string | null = null;
@@ -9,9 +9,9 @@ const api = {
   },
 
   async post(endpoint: string, data: any) {
-    if (!authToken) {
-      throw new Error('Auth token not set');
-    }
+    // if (!authToken) {
+    //   throw new Error('Auth token not set');
+    // }
 
     const response = await fetch(`${API_BASE_URL}/${endpoint}`, {
       method: 'POST',

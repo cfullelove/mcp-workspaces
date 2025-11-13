@@ -1,7 +1,6 @@
 package main
 
 import (
-	"embed"
 	"flag"
 	"fmt"
 	"io/fs"
@@ -13,9 +12,6 @@ import (
 	"strconv"
 	"strings"
 )
-
-//go:embed all:frontend/dist
-var embeddedFiles embed.FS
 
 // Config holds the application configuration.
 type Config struct {
