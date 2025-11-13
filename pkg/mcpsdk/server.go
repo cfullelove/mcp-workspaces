@@ -200,8 +200,8 @@ type DirectoryTreeRequest struct {
 	ExcludePatterns []string `json:"excludePatterns,omitempty"`
 }
 type TreeNode struct {
-	Name     string     `json:"name"`
-	Type     string     `json:"type"`
+	Name     string      `json:"name"`
+	Type     string      `json:"type"`
 	Children *[]TreeNode `json:"children,omitempty"`
 }
 type DirectoryTreeResponse struct {
@@ -431,6 +431,10 @@ func buildTree(root string, excludePatterns []string) ([]TreeNode, error) {
 		return nil, err
 	}
 	for _, f := range files {
+		// Always hide protected names
+		if isProtectedName(f.Name()) {
+			continue
+		}
 		// Exclude by name
 		isExcluded := false
 		for _, pattern := range excludePatterns {

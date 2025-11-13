@@ -4,8 +4,8 @@ App components should be build/run/tested/etc using docker containers
 
 # To build/rebuild the app
 
-- Use `docker compose` to (re)start/build the frontend/backend
 - Use `docker compose ps` to see whether or not the app is already running
+- Use `docker compose` to (re)start/build the frontend/backend
 
 # To run commands
 

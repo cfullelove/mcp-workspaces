@@ -21,7 +21,7 @@ const FileList: React.FC<FileListProps> = ({ workspaceId, onSelectFile, refetch,
   const fetchFiles = async () => {
     try {
       const response = await api.listDirectory(workspaceId, '.');
-      setFiles(response.entries);
+      setFiles(response.entries || []);
     } catch (err) {
       setError('Failed to fetch files');
     }

@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -18,6 +19,23 @@ import (
 )
 
 // Shared tool implementations used by both MCP server tools and REST API.
+
+func isProtectedName(name string) bool {
+	return name == ".git" || name == ".gitkeep"
+}
+
+func isProtectedPath(rel string) bool {
+	cleaned := filepath.Clean(rel)
+	for _, seg := range strings.Split(cleaned, string(os.PathSeparator)) {
+		if seg == "" {
+			continue
+		}
+		if isProtectedName(seg) {
+			return true
+		}
+	}
+	return false
+}
 
 func WorkspaceCreate(ctx context.Context, wm *workspace.Manager, input CreateWorkspaceRequest) (CreateWorkspaceResponse, error) {
 	if input.Name == "" {
@@ -49,6 +67,9 @@ func FSWriteFile(ctx context.Context, wm *workspace.Manager, a WriteFileRequest)
 	if a.WorkspaceID == "" || a.Path == "" {
 		return WriteFileResponse{}, fmt.Errorf("INVALID_INPUT: 'workspaceId' and 'path' are required")
 	}
+	if isProtectedPath(a.Path) {
+		return WriteFileResponse{}, fmt.Errorf("NOT_FOUND: file not found")
+	}
 	absPath, err := wm.SafePath(a.WorkspaceID, a.Path)
 	if err != nil {
 		return WriteFileResponse{}, fmt.Errorf("OUT_OF_BOUNDS: %v", err)
@@ -76,6 +97,9 @@ func FSReadTextFile(ctx context.Context, wm *workspace.Manager, a ReadFileReques
 	}
 	if a.Head != nil && a.Tail != nil {
 		return ReadFileResponse{}, fmt.Errorf("INVALID_INPUT: cannot specify both 'head' and 'tail'")
+	}
+	if isProtectedPath(a.Path) {
+		return ReadFileResponse{}, fmt.Errorf("NOT_FOUND: file not found")
 	}
 	absPath, err := wm.SafePath(a.WorkspaceID, a.Path)
 	if err != nil {
@@ -113,6 +137,9 @@ func FSReadTextFile(ctx context.Context, wm *workspace.Manager, a ReadFileReques
 }
 
 func FSCreateDirectory(ctx context.Context, wm *workspace.Manager, a CreateDirectoryRequest) (CreateDirectoryResponse, error) {
+	if isProtectedPath(a.Path) {
+		return CreateDirectoryResponse{}, fmt.Errorf("NOT_FOUND: file not found")
+	}
 	absPath, err := wm.SafePath(a.WorkspaceID, a.Path)
 	if err != nil {
 		return CreateDirectoryResponse{}, fmt.Errorf("OUT_OF_BOUNDS: %v", err)
@@ -147,6 +174,9 @@ func FSListDirectory(ctx context.Context, wm *workspace.Manager, a ListDirectory
 	}
 	var entries []string
 	for _, f := range files {
+		if isProtectedName(f.Name()) {
+			continue
+		}
 		prefix := "[FILE]"
 		if f.IsDir() {
 			prefix = "[DIR]"
@@ -157,6 +187,9 @@ func FSListDirectory(ctx context.Context, wm *workspace.Manager, a ListDirectory
 }
 
 func FSGetFileInfo(ctx context.Context, wm *workspace.Manager, a GetFileInfoRequest) (GetFileInfoResponse, error) {
+	if isProtectedPath(a.Path) {
+		return GetFileInfoResponse{}, fmt.Errorf("NOT_FOUND: file or directory not found")
+	}
 	absPath, err := wm.SafePath(a.WorkspaceID, a.Path)
 	if err != nil {
 		return GetFileInfoResponse{}, fmt.Errorf("OUT_OF_BOUNDS: %v", err)
@@ -206,6 +239,9 @@ func FSGetCommitHistory(ctx context.Context, wm *workspace.Manager, a GetCommitH
 }
 
 func FSMoveFile(ctx context.Context, wm *workspace.Manager, a MoveFileRequest) (MoveFileResponse, error) {
+	if isProtectedPath(a.Source) || isProtectedPath(a.Destination) {
+		return MoveFileResponse{}, fmt.Errorf("NOT_FOUND: file not found")
+	}
 	src, err := wm.SafePath(a.WorkspaceID, a.Source)
 	if err != nil {
 		return MoveFileResponse{}, fmt.Errorf("OUT_OF_BOUNDS: source path invalid: %v", err)
@@ -230,6 +266,9 @@ func FSMoveFile(ctx context.Context, wm *workspace.Manager, a MoveFileRequest) (
 func FSEditFile(ctx context.Context, wm *workspace.Manager, a EditFileRequest) (any, error) {
 	if a.WorkspaceID == "" || a.Path == "" || len(a.Edits) == 0 {
 		return nil, fmt.Errorf("INVALID_INPUT: 'workspaceId', 'path', and 'edits' are required")
+	}
+	if isProtectedPath(a.Path) {
+		return nil, fmt.Errorf("NOT_FOUND: file not found")
 	}
 	absPath, err := wm.SafePath(a.WorkspaceID, a.Path)
 	if err != nil {
@@ -271,6 +310,11 @@ func FSReadMultipleFiles(ctx context.Context, wm *workspace.Manager, a ReadMulti
 	}
 	out := make([]FileReadResult, 0, len(a.Paths))
 	for _, p := range a.Paths {
+		if isProtectedPath(p) {
+			errStr := "NOT_FOUND: file not found"
+			out = append(out, FileReadResult{Path: p, OK: false, Error: &errStr})
+			continue
+		}
 		abs, err := wm.SafePath(a.WorkspaceID, p)
 		if err != nil {
 			errStr := err.Error()
@@ -301,6 +345,9 @@ func FSListDirectoryWithSizes(ctx context.Context, wm *workspace.Manager, a List
 	var entries []EntryInfo
 	var totals TotalsInfo
 	for _, f := range files {
+		if isProtectedName(f.Name()) {
+			continue
+		}
 		info, err := f.Info()
 		if err != nil {
 			continue
@@ -340,6 +387,12 @@ func FSSearchFiles(ctx context.Context, wm *workspace.Manager, a SearchFilesRequ
 			return err
 		}
 		if d.IsDir() {
+			if isProtectedName(d.Name()) {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if isProtectedName(d.Name()) {
 			return nil
 		}
 		// Check main pattern against filename
@@ -391,6 +444,9 @@ func FSDirectoryTree(ctx context.Context, wm *workspace.Manager, a DirectoryTree
 }
 
 func FSReadMediaFile(ctx context.Context, wm *workspace.Manager, a ReadMediaFileRequest) (ReadMediaFileResponse, error) {
+	if isProtectedPath(a.Path) {
+		return ReadMediaFileResponse{}, fmt.Errorf("NOT_FOUND: file not found")
+	}
 	abs, err := wm.SafePath(a.WorkspaceID, a.Path)
 	if err != nil {
 		return ReadMediaFileResponse{}, fmt.Errorf("OUT_OF_BOUNDS: %v", err)
@@ -421,6 +477,9 @@ var _ = io.EOF
 func FSDeleteFile(ctx context.Context, wm *workspace.Manager, a DeleteFileRequest) (DeleteFileResponse, error) {
 	if a.WorkspaceID == "" || a.Path == "" {
 		return DeleteFileResponse{}, fmt.Errorf("INVALID_INPUT: 'workspaceId' and 'path' are required")
+	}
+	if isProtectedPath(a.Path) {
+		return DeleteFileResponse{}, fmt.Errorf("NOT_FOUND: file not found")
 	}
 	absPath, err := wm.SafePath(a.WorkspaceID, a.Path)
 	if err != nil {

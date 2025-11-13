@@ -49,7 +49,7 @@ func TestStdio_WorkspaceCreate_SDK(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		binaryPath += ".exe"
 	}
-	build := exec.Command("go", "build", "-o", binaryPath, ".")
+	build := exec.Command("go", "build", "-tags=dev", "-o", binaryPath, ".")
 	build.Env = os.Environ()
 	out, err := build.CombinedOutput()
 	require.NoError(t, err, "build failed: %s", string(out))
@@ -101,7 +101,7 @@ func TestHTTP_Streamable_WorkspaceCreate_SDK(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		binaryPath += ".exe"
 	}
-	build := exec.Command("go", "build", "-o", binaryPath, ".")
+	build := exec.Command("go", "build", "-tags=dev", "-o", binaryPath, ".")
 	build.Env = os.Environ()
 	out, err := build.CombinedOutput()
 	require.NoError(t, err, "build failed: %s", string(out))
