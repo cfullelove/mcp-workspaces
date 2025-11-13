@@ -2,7 +2,7 @@
 ## Prototype MCP Workspace Manager (Go, stdio/HTTP SSE)
 
 ### Document version
-- Version: 1.0 (Draft)
+- Version: 1.1 (Draft)
 - Date: 2025-10-03
 - Author: Assistant
 - Stakeholder location context: Brisbane, QLD, Australia
@@ -19,6 +19,7 @@ Build a standalone Go application (single binary) that implements a Model Contex
 - Provide a minimal-yet-complete MCP server with:
   - Workspace lifecycle: create workspace.
   - Workspace-scoped file tools: read/write/edit/list/move/search/inspect.
+  - Automatic Git-based versioning for all write operations within a workspace.
 - Support both stdio and HTTP SSE transports behind a common abstraction.
 - Enforce safe filesystem operations confined to the configured workspace root.
 - Offer sensible defaults and simple configuration (flags and/or env vars).
@@ -39,12 +40,13 @@ Build a standalone Go application (single binary) that implements a Model Contex
 
 ### 2.2 Key use cases
 - Create a new workspace directory under a known parent.
-- Read, write, and edit files within a workspace.
+- Read, write, and edit files within a workspace, with changes automatically versioned.
 - Inspect directory contents and metadata.
 - Move/rename files or directories safely within a workspace.
 - Search for files using glob-like patterns.
 - Retrieve a structured directory tree for visualisation.
 - Read media files for preview or processing.
+- View the commit history of a file or an entire workspace.
 
 ---
 
@@ -80,11 +82,17 @@ Build a standalone Go application (single binary) that implements a Model Contex
     - Ensure uniqueness under `workspaces-root`:
       - If the slug already exists, append `-n` or a short disambiguator (e.g., 4–6 char hash) and return the final slug.
     - Create a subdirectory under `workspaces-root` with the final slug.
+    - Initialize a new Git repository within this directory.
   - Output: `{ workspaceId: string, path: string }`, where `path` is the absolute canonical path.
 
 - All subsequent tool calls shall require `workspaceId` and operate relative to that workspace directory.
 
-#### 3.1.4 Tools (per workspace)
+#### 3.1.4 Git Integration
+- Upon creation, each workspace directory shall be initialized as a Git repository.
+- All file system write operations (`write_file`, `edit_file`, `create_directory`, `move_file`) shall be automatically committed to the repository.
+- Commit messages shall be descriptive and automatically generated, indicating the tool that triggered the commit (e.g., "mcp/fs_write_file: Create users/data.txt").
+
+#### 3.1.5 Tools (per workspace)
 
 For each tool, inputs must include `workspaceId` and workspace-relative `path`(s) unless explicitly noted.
 
@@ -127,8 +135,9 @@ For each tool, inputs must include `workspaceId` and workspace-relative `path`(s
     - `content` (string).
   - Behaviour:
     - Create or overwrite the file. Create parent directories as needed.
+    - After a successful write, stage and commit the change.
   - Output:
-    - `{ path: string, bytesWritten: number, overwritten: boolean }`
+    - `{ path: string, bytesWritten: number, overwritten: boolean, commit: string }`
 
 - edit_file
   - Inputs:
@@ -139,9 +148,10 @@ For each tool, inputs must include `workspaceId` and workspace-relative `path`(s
     - Apply search/replace operations in a deterministic order (e.g., input order).
     - Preserve indentation style when possible; normalise whitespace as needed.
     - When `dryRun = true`, do not write; return a Git-style unified diff plus match stats.
+    - When `dryRun = false`, after applying changes, stage and commit them.
   - Output:
     - Dry run: `{ dryRun: true, diff: string, matches: number }`
-    - Applied: `{ dryRun: false, path: string, changes: number, bytesWritten: number }`
+    - Applied: `{ dryRun: false, path: string, changes: number, bytesWritten: number, commit: string }`
   - Notes:
     - Prototype scope: substring replacement; no regex required, but structure allows extension.
 
@@ -150,8 +160,9 @@ For each tool, inputs must include `workspaceId` and workspace-relative `path`(s
     - `path` (string).
   - Behaviour:
     - Create directory; create parents; succeed if exists (idempotent).
+    - After creating the directory, stage and commit the change (e.g., by adding a `.gitkeep` file if the directory is empty, to ensure it's tracked).
   - Output:
-    - `{ path: string, created: boolean }`
+    - `{ path: string, created: boolean, commit: string }`
 
 - list_directory
   - Inputs:
@@ -175,8 +186,9 @@ For each tool, inputs must include `workspaceId` and workspace-relative `path`(s
     - `source` (string), `destination` (string).
   - Behaviour:
     - Move/rename within workspace; fail if destination exists.
+    - After a successful move, stage and commit the change (`git add -A` and `git commit`).
   - Output:
-    - `{ source: string, destination: string }`
+    - `{ source: string, destination: string, commit: string }`
 
 - search_files
   - Inputs:
@@ -208,16 +220,26 @@ For each tool, inputs must include `workspaceId` and workspace-relative `path`(s
   - Output:
     - `{ size: number, ctime?: string, mtime: string, atime?: string, type: 'file'|'directory', permissions: string }`
 
+- get_commit_history
+  - Inputs:
+    - `workspaceId` (string).
+    - `path` (string, optional): file path to get history for.
+    - `limit` (number, optional, default 20): number of commits to return.
+  - Behaviour:
+    - Return the git log for the specified path or the entire workspace.
+  - Output:
+    - `{ log: Array<{ commit: string, author: string, date: string, message: string }> }`
+
 - Removed tool
   - list_allowed_directories: not implemented.
 
-#### 3.1.5 Path Handling and Safety
+#### 3.1.6 Path Handling and Safety
 - Resolve all input paths against the canonical workspace root.
 - Reject operations that would escape the workspace (e.g., via `..` traversal or symlink resolution leading outside root).
 - Normalise path separators for Windows and Linux appropriately.
 - Return clear errors for invalid paths.
 
-#### 3.1.6 Error handling
+#### 3.1.7 Error handling
 - Use a consistent error schema:
   - `{ code: string, message: string, details?: any }`
 - Common codes:
@@ -225,7 +247,7 @@ For each tool, inputs must include `workspaceId` and workspace-relative `path`(s
 - For `read_text_file`, if both `head` and `tail` are provided, return `INVALID_INPUT`.
 - For `move_file`, if destination exists, return `ALREADY_EXISTS`.
 
-#### 3.1.7 Logging and observability
+#### 3.1.8 Logging and observability
 - Logging:
   - Log server start, transport, port, workspaces root.
   - Log tool invocations at debug level with redacted paths where necessary.
@@ -248,19 +270,20 @@ For each tool, inputs must include `workspaceId` and workspace-relative `path`(s
 
 ### 4.2 Tool naming
 - Tools should be named clearly; suggested names:
-  - `workspace/create`
-  - `fs/read_text_file`
-  - `fs/read_media_file`
-  - `fs/read_multiple_files`
-  - `fs/write_file`
-  - `fs/edit_file`
-  - `fs/create_directory`
-  - `fs/list_directory`
-  - `fs/list_directory_with_sizes`
-  - `fs/move_file`
-  - `fs/search_files`
-  - `fs/directory_tree`
-  - `fs/get_file_info`
+  - `workspace_create`
+  - `fs_read_text_file`
+  - `fs_read_media_file`
+  - `fs_read_multiple_files`
+  - `fs_write_file`
+  - `fs_edit_file`
+  - `fs_create_directory`
+  - `fs_list_directory`
+  - `fs_list_directory_with_sizes`
+  - `fs_move_file`
+  - `fs_search_files`
+  - `fs_directory_tree`
+  - `fs_get_file_info`
+  - `fs_get_commit_history`
 
 ### 4.3 Versioning
 - Include an `x-server` info response tool (optional) returning `{ name, version, transport }` for diagnostics.
@@ -320,6 +343,8 @@ For each tool, inputs must include `workspaceId` and workspace-relative `path`(s
   - Prefer an existing Go MCP library that supports stdio and HTTP SSE. If none is mature, implement a minimal MCP transport abstraction with:
     - stdio: JSON-RPC-like messages over stdin/stdout.
     - HTTP SSE: Gorilla/standard library HTTP with SSE writer plus a POST command channel, or a single duplex if the chosen library supports it.
+- Git Integration:
+  - `go-git/go-git` or a similar library for programmatic Git operations.
 - MIME detection:
   - `net/http`’s `DetectContentType` plus extension map fallback.
 - Logging:
@@ -336,19 +361,21 @@ Note: Prior to implementation, verify availability of a Go MCP library providing
   - Running with `--transport=stdio --workspaces-root=./data` starts an MCP stdio server on stdin/stdout.
 
 - Workspace creation
-  - Given name “My First Workspace”, server returns `workspaceId: "my-first-workspace"` and creates `./data/my-first-workspace`.
+  - Given name “My First Workspace”, server returns `workspaceId: "my-first-workspace"`, creates `./data/my-first-workspace`, and initializes a git repository inside it.
   - If “My First Workspace” is created again, a unique variant is returned (e.g., `my-first-workspace-2` or `my-first-workspace-ab12`).
 
 - File tools
-  - `write_file` successfully creates or overwrites a file; `get_file_info` reflects correct size and times.
+  - `write_file` successfully creates or overwrites a file and creates a corresponding git commit with a descriptive message. The commit hash is returned in the response.
+  - `edit_file` with `dryRun: false` applies changes and creates a commit. The commit hash is returned.
+  - `move_file` successfully moves a file and creates a commit. The commit hash is returned.
+  - `create_directory` successfully creates a directory and creates a commit. The commit hash is returned.
+  - `get_commit_history` returns a list of commits for the workspace or a specific file.
   - `read_text_file` returns full contents; with `head: 5`, returns first 5 lines; specifying both `head` and `tail` yields `INVALID_INPUT`.
   - `read_media_file` returns base64 and correct MIME for a PNG or MP3.
   - `read_multiple_files` returns mixed success without failing overall if one path is missing.
   - `edit_file` with `dryRun: true` produces a diff; with `dryRun: false` applies changes and returns stats.
-  - `create_directory` is idempotent.
   - `list_directory` shows “[FILE] ” and “[DIR] ” prefixes.
   - `list_directory_with_sizes` returns entries with sizes and totals; sorted by name by default, by size when requested.
-  - `move_file` fails with `ALREADY_EXISTS` if destination exists; otherwise moves item.
   - `search_files` returns matches consistent with provided glob and excludes.
   - `directory_tree` returns structure with 2-space indentation rules and correct `children` semantics.
   - `get_file_info` includes type and permissions; notes platform limitations for `ctime` and `atime` if absent.
@@ -377,6 +404,9 @@ Note: Prior to implementation, verify availability of a Go MCP library providing
 - Risk: Path normalisation mistakes on Windows.
   - Mitigation: Use `filepath` consistently; extensive unit tests with edge cases.
 
+- Risk: Git operations could be slow and block requests.
+  - Mitigation: For this prototype, all operations are synchronous. Future enhancements could make git operations asynchronous.
+
 ---
 
 ## 12. Milestones
@@ -387,20 +417,26 @@ Note: Prior to implementation, verify availability of a Go MCP library providing
 - M2: stdio transport + core routing
   - Register tools, implement request/response envelopes.
 
-- M3: Workspace create + core FS tools
-  - write_file, read_text_file, create_directory, list_directory, get_file_info.
+- M3: Workspace create + Git Integration
+  - Update `workspace_create` to initialize a git repo.
+  - Implement a git wrapper for staging and committing changes.
 
-- M4: Advanced tools
-  - edit_file (with dryRun diff), move_file, search_files, directory_tree, list_directory_with_sizes, read_multiple_files.
+- M4: Core FS tools with Git
+  - `write_file`, `edit_file`, `create_directory`, `move_file` with automatic commits.
+  - `read_text_file`, `list_directory`, `get_file_info`.
 
-- M5: Media reading
-  - read_media_file with MIME detection and base64.
+- M5: Advanced tools
+  - `search_files`, `directory_tree`, `list_directory_with_sizes`, `read_multiple_files`.
+  - `get_commit_history`.
 
-- M6: HTTP SSE transport
+- M6: Media reading
+  - `read_media_file` with MIME detection and base64.
+
+- M7: HTTP SSE transport
   - SSE stream endpoint, command handling, parity with stdio.
 
-- M7: Hardening and tests
-  - Path safety, symlink escape checks, error codes, basic concurrency tests.
+- M8: Hardening and tests
+  - Path safety, symlink escape checks, error codes, concurrency tests, git integration tests.
 
 ---
 
@@ -409,9 +445,9 @@ Note: Prior to implementation, verify availability of a Go MCP library providing
 - Unit tests:
   - Slug generation, path normalisation, workspace scoping.
   - Each tool’s happy-path and failure modes.
+  - Git commit generation and history retrieval.
 - Integration tests:
-  - End-to-end flows over stdio.
-  - Basic HTTP SSE flow if feasible within test harness.
+  - End-to-end flows over stdio and HTTP, checking for correct file state and git commits after each operation.
 - Manual tests:
   - Large file behaviours, binary vs text reading, Windows path scenarios.
 
@@ -426,6 +462,7 @@ Note: Prior to implementation, verify availability of a Go MCP library providing
 - Workspace deletion and archival.
 - Observability: metrics, tracing.
 - Pluggable storage backends (e.g., S3, SMB).
+- Git branching, merging, and reverting capabilities.
 
 ---
 

@@ -1,0 +1,55 @@
+name: Build and Release
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches: 
+      - main
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: '1.25'
+
+      - name: Test
+        run: go test -v
+
+      - name: Build for Linux
+        run: go build -v -o mcp-workspace-manager
+
+      - name: Build for Windows
+        run: GOOS=windows GOARCH=amd64 go build -v -o mcp-workspace-manager.exe
+
+      - name: Create Release for Main
+        if: github.event_name == 'push'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create $(date +'%Y-%m-%d-%H-%M-%S') \
+            --title "Release $(date +'%Y-%m-%d-%H-%M-%S')" \
+            --notes "New release" \
+            ./mcp-workspace-manager \
+            ./mcp-workspace-manager.exe
+
+      - name: Create Pre-release for PR
+        if: github.event_name == 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "dev-${{ github.head_ref }}-${{ github.sha }}" \
+            --title "Dev Build for PR #${{ github.event.pull_request.number }} (${{ github.head_ref }})" \
+            --notes "Development build for PR #${{ github.event.pull_request.number }} from branch `${{ github.head_ref }}` at commit `${{ github.sha }}`" \
+            --prerelease \
+            ./mcp-workspace-manager \
+            ./mcp-workspace-manager.exe

@@ -1,0 +1,13 @@
+# Binaries
+mcp-workspace-manager
+mcp-workspace-manager.exe
+
+# Log files
+*.log
+
+# Test coverage
+*.out
+
+# OS-specific files
+.DS_Store
+Thumbs.db
