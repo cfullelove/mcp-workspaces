@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import FileEditor from './FileEditor';
 import FileTree from './FileTree';
 import api from '../services/api';
+import { createWorkspaceEventSource } from '../services/events';
+import type { WorkspaceEvent } from '../services/events';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -39,6 +41,8 @@ const WorkspaceBrowser: React.FC<WorkspaceBrowserProps> = ({ onLogout }) => {
 
   // Root entries for FileTree
   const [rootEntries, setRootEntries] = useState<string[]>([]);
+  const [lastEvent, setLastEvent] = useState<WorkspaceEvent | null>(null);
+  const esRef = useRef<EventSource | null>(null);
 
   const handleSelectFile = (filePath: string) => {
     const isFile = filePath.startsWith('[FILE]');
@@ -84,6 +88,35 @@ const WorkspaceBrowser: React.FC<WorkspaceBrowserProps> = ({ onLogout }) => {
     };
     fetchRootEntries();
   }, [selectedWorkspace, refetchFiles]);
+
+  // Subscribe to workspace events for realtime updates
+  useEffect(() => {
+    // Cleanup any prior EventSource
+    if (esRef.current) {
+      esRef.current.close();
+      esRef.current = null;
+    }
+    if (!selectedWorkspace) {
+      setLastEvent(null);
+      return;
+    }
+    const es = createWorkspaceEventSource(
+      '', // same-origin so Vite proxy can forward /events to backend in dev
+      selectedWorkspace,
+      {
+        onEvent: (evt) => {
+          setLastEvent(evt);
+          // For now, any file/dir change triggers a light refresh of visible trees
+          setRefetchFiles((prev) => !prev);
+        },
+      }
+    );
+    esRef.current = es;
+    return () => {
+      es.close();
+      esRef.current = null;
+    };
+  }, [selectedWorkspace]);
 
   const handleCreateWorkspace = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -300,7 +333,7 @@ const WorkspaceBrowser: React.FC<WorkspaceBrowserProps> = ({ onLogout }) => {
           <div className="flex flex-col h-full">
             <div className="flex-grow p-4 overflow-y-auto">
               {selectedFile ? (
-                <FileEditor workspaceId={selectedWorkspace} filePath={selectedFile} />
+                <FileEditor workspaceId={selectedWorkspace} filePath={selectedFile} lastEvent={lastEvent} />
               ) : (
                 <p className="text-gray-500">Select a file from the tree</p>
               )}

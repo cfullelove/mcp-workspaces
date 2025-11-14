@@ -2,6 +2,7 @@ package mcpsdk
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/sergi/go-diff/diffmatchpatch"
 
+	"mcp-workspace-manager/pkg/events"
 	"mcp-workspace-manager/pkg/workspace"
 )
 
@@ -77,10 +79,37 @@ func FSWriteFile(ctx context.Context, wm *workspace.Manager, a WriteFileRequest)
 	_, statErr := os.Stat(absPath)
 	overwritten := !os.IsNotExist(statErr)
 
+	// Preconditions
+	var currEtag string
+	if overwritten {
+		if b, errR := os.ReadFile(absPath); errR == nil {
+			sum := sha256.Sum256(b)
+			currEtag = fmt.Sprintf("%x", sum[:])
+		}
+	}
+	if a.IfMatchFileEtag != nil && *a.IfMatchFileEtag != "" && overwritten && currEtag != *a.IfMatchFileEtag {
+		return WriteFileResponse{}, fmt.Errorf("CONFLICT: file etag mismatch")
+	}
+	if a.IfMatchWorkspaceHead != nil && *a.IfMatchWorkspaceHead != "" {
+		if head, _ := wm.HeadCommit(a.WorkspaceID); head != *a.IfMatchWorkspaceHead {
+			return WriteFileResponse{}, fmt.Errorf("CONFLICT: workspace head mismatch")
+		}
+	}
+
+	// Prepare content and short-circuit if no-op (unchanged file)
+	contentBytes := []byte(a.Content)
+	if overwritten {
+		sumNew := sha256.Sum256(contentBytes)
+		newEtag := fmt.Sprintf("%x", sumNew[:])
+		if currEtag != "" && newEtag == currEtag {
+			// No changes; do not write, do not commit, do not emit events
+			return WriteFileResponse{Path: a.Path, BytesWritten: 0, Overwritten: overwritten, Commit: ""}, nil
+		}
+	}
+
 	if err := os.MkdirAll(filepath.Dir(absPath), 0755); err != nil {
 		return WriteFileResponse{}, fmt.Errorf("INTERNAL: failed to create parent directories: %v", err)
 	}
-	contentBytes := []byte(a.Content)
 	if err := os.WriteFile(absPath, contentBytes, 0644); err != nil {
 		return WriteFileResponse{}, fmt.Errorf("INTERNAL: failed to write file: %v", err)
 	}
@@ -88,6 +117,20 @@ func FSWriteFile(ctx context.Context, wm *workspace.Manager, a WriteFileRequest)
 	if err != nil {
 		return WriteFileResponse{}, fmt.Errorf("INTERNAL: failed to commit changes: %v", err)
 	}
+
+	// Publish event
+	evtType := "file.created"
+	if overwritten {
+		evtType = "file.updated"
+	}
+	commitCopy := commit
+	publishWorkspaceEvent(a.WorkspaceID, events.WorkspaceEvent{
+		Type:   evtType,
+		Path:   a.Path,
+		IsDir:  false,
+		Commit: &commitCopy,
+	})
+
 	return WriteFileResponse{Path: a.Path, BytesWritten: len(contentBytes), Overwritten: overwritten, Commit: commit}, nil
 }
 
@@ -115,7 +158,24 @@ func FSReadTextFile(ctx context.Context, wm *workspace.Manager, a ReadFileReques
 	content := string(contentBytes)
 	lines := strings.Split(content, "\n")
 	total := len(lines)
-	resp := ReadFileResponse{TotalLines: total}
+
+	sum := sha256.Sum256(contentBytes)
+	etag := fmt.Sprintf("%x", sum[:])
+
+	var mtimeStr string
+	if info, statErr := os.Stat(absPath); statErr == nil {
+		mtimeStr = info.ModTime().UTC().Format(time.RFC3339)
+	}
+
+	head, _ := wm.HeadCommit(a.WorkspaceID)
+
+	resp := ReadFileResponse{
+		TotalLines:    total,
+		Etag:          etag,
+		Mtime:         mtimeStr,
+		WorkspaceHead: head,
+	}
+
 	if a.Head != nil {
 		h := *a.Head
 		if h > total {
@@ -160,6 +220,16 @@ func FSCreateDirectory(ctx context.Context, wm *workspace.Manager, a CreateDirec
 	if err != nil {
 		return CreateDirectoryResponse{}, fmt.Errorf("INTERNAL: failed to commit changes: %v", err)
 	}
+
+	// Publish event
+	commitCopy := commit
+	publishWorkspaceEvent(a.WorkspaceID, events.WorkspaceEvent{
+		Type:   "dir.created",
+		Path:   a.Path,
+		IsDir:  true,
+		Commit: &commitCopy,
+	})
+
 	return CreateDirectoryResponse{Path: a.Path, Created: created, Commit: commit}, nil
 }
 
@@ -260,6 +330,23 @@ func FSMoveFile(ctx context.Context, wm *workspace.Manager, a MoveFileRequest) (
 	if err != nil {
 		return MoveFileResponse{}, fmt.Errorf("INTERNAL: commit failed: %v", err)
 	}
+
+	// Determine dir/file
+	isDir := false
+	if info, statErr := os.Stat(dst); statErr == nil {
+		isDir = info.IsDir()
+	}
+	// Publish event
+	commitCopy := commit
+	prev := a.Source
+	publishWorkspaceEvent(a.WorkspaceID, events.WorkspaceEvent{
+		Type:     "file.moved",
+		Path:     a.Destination,
+		PrevPath: &prev,
+		IsDir:    isDir,
+		Commit:   &commitCopy,
+	})
+
 	return MoveFileResponse{Source: a.Source, Destination: a.Destination, Commit: commit}, nil
 }
 
@@ -278,11 +365,29 @@ func FSEditFile(ctx context.Context, wm *workspace.Manager, a EditFileRequest) (
 	if err != nil {
 		return nil, fmt.Errorf("NOT_FOUND: file not found")
 	}
+	// Preconditions (current etag)
+	sum := sha256.Sum256(orig)
+	currEtag := fmt.Sprintf("%x", sum[:])
+	if a.IfMatchFileEtag != nil && *a.IfMatchFileEtag != "" && currEtag != *a.IfMatchFileEtag {
+		return nil, fmt.Errorf("CONFLICT: file etag mismatch")
+	}
+	if a.IfMatchWorkspaceHead != nil && *a.IfMatchWorkspaceHead != "" {
+		if head, _ := wm.HeadCommit(a.WorkspaceID); head != *a.IfMatchWorkspaceHead {
+			return nil, fmt.Errorf("CONFLICT: workspace head mismatch")
+		}
+	}
+
 	newContent := string(orig)
 	matches := 0
 	for _, e := range a.Edits {
 		matches += strings.Count(newContent, e.OldText)
 		newContent = strings.ReplaceAll(newContent, e.OldText, e.NewText)
+	}
+
+	// If no effective change, short-circuit (no write, no commit, no event)
+	if newContent == string(orig) {
+		out := EditFileResponse{DryRun: false, Path: a.Path, Changes: 0, BytesWritten: 0, Commit: ""}
+		return out, nil
 	}
 
 	if a.DryRun {
@@ -300,6 +405,16 @@ func FSEditFile(ctx context.Context, wm *workspace.Manager, a EditFileRequest) (
 	if err != nil {
 		return nil, fmt.Errorf("INTERNAL: failed to commit changes: %v", err)
 	}
+
+	// Publish event
+	commitCopy := commit
+	publishWorkspaceEvent(a.WorkspaceID, events.WorkspaceEvent{
+		Type:   "file.updated",
+		Path:   a.Path,
+		IsDir:  false,
+		Commit: &commitCopy,
+	})
+
 	out := EditFileResponse{DryRun: false, Path: a.Path, Changes: len(a.Edits), BytesWritten: len(contentBytes), Commit: commit}
 	return out, nil
 }
@@ -485,6 +600,11 @@ func FSDeleteFile(ctx context.Context, wm *workspace.Manager, a DeleteFileReques
 	if err != nil {
 		return DeleteFileResponse{}, fmt.Errorf("OUT_OF_BOUNDS: %v", err)
 	}
+	// Determine if directory before removal
+	isDir := false
+	if info, statErr := os.Stat(absPath); statErr == nil {
+		isDir = info.IsDir()
+	}
 	if err := os.RemoveAll(absPath); err != nil {
 		return DeleteFileResponse{}, fmt.Errorf("INTERNAL: failed to delete file: %v", err)
 	}
@@ -492,5 +612,19 @@ func FSDeleteFile(ctx context.Context, wm *workspace.Manager, a DeleteFileReques
 	if err != nil {
 		return DeleteFileResponse{}, fmt.Errorf("INTERNAL: failed to commit changes: %v", err)
 	}
+
+	// Publish event
+	evtType := "file.deleted"
+	if isDir {
+		evtType = "dir.deleted"
+	}
+	commitCopy := commit
+	publishWorkspaceEvent(a.WorkspaceID, events.WorkspaceEvent{
+		Type:   evtType,
+		Path:   a.Path,
+		IsDir:  isDir,
+		Commit: &commitCopy,
+	})
+
 	return DeleteFileResponse{Path: a.Path, Commit: commit}, nil
 }

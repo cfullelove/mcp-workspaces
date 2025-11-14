@@ -48,9 +48,11 @@ type ListWorkspacesResponse struct {
 // ===== FS tool types =====
 
 type WriteFileRequest struct {
-	WorkspaceID string `json:"workspaceId"`
-	Path        string `json:"path"`
-	Content     string `json:"content"`
+	WorkspaceID          string  `json:"workspaceId"`
+	Path                 string  `json:"path"`
+	Content              string  `json:"content"`
+	IfMatchFileEtag      *string `json:"ifMatchFileEtag,omitempty"`
+	IfMatchWorkspaceHead *string `json:"ifMatchWorkspaceHead,omitempty"`
 }
 type WriteFileResponse struct {
 	Path         string `json:"path"`
@@ -66,10 +68,13 @@ type ReadFileRequest struct {
 	Tail        *int   `json:"tail,omitempty"`
 }
 type ReadFileResponse struct {
-	Content    string `json:"content"`
-	TotalLines int    `json:"totalLines,omitempty"`
-	Head       *int   `json:"head,omitempty"`
-	Tail       *int   `json:"tail,omitempty"`
+	Content       string `json:"content"`
+	TotalLines    int    `json:"totalLines,omitempty"`
+	Head          *int   `json:"head,omitempty"`
+	Tail          *int   `json:"tail,omitempty"`
+	Etag          string `json:"etag,omitempty"`
+	Mtime         string `json:"mtime,omitempty"`
+	WorkspaceHead string `json:"workspaceHead,omitempty"`
 }
 
 type CreateDirectoryRequest struct {
@@ -132,10 +137,12 @@ type Edit struct {
 	NewText string `json:"newText"`
 }
 type EditFileRequest struct {
-	WorkspaceID string `json:"workspaceId"`
-	Path        string `json:"path"`
-	Edits       []Edit `json:"edits"`
-	DryRun      bool   `json:"dryRun"`
+	WorkspaceID          string  `json:"workspaceId"`
+	Path                 string  `json:"path"`
+	Edits                []Edit  `json:"edits"`
+	DryRun               bool    `json:"dryRun"`
+	IfMatchFileEtag      *string `json:"ifMatchFileEtag,omitempty"`
+	IfMatchWorkspaceHead *string `json:"ifMatchWorkspaceHead,omitempty"`
 }
 type EditFileDryRunResponse struct {
 	DryRun  bool   `json:"dryRun"`

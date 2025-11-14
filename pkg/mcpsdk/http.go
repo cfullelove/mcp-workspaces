@@ -11,6 +11,7 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"mcp-workspace-manager/pkg/events"
 	"mcp-workspace-manager/pkg/workspace"
 )
 
@@ -26,6 +27,18 @@ func RunHTTP(host string, port int, wm *workspace.Manager, authTokens []string, 
 	}, nil)
 
 	mux := http.NewServeMux()
+
+	// Initialize global event hub and mount SSE endpoint for browsers
+	// Note: Authorization for /events is handled by the SSE handler (query token or Bearer).
+	eventHub = events.NewHub(200)
+	mux.Handle("/events", events.SSEHandler(eventHub, authTokens))
+
+	// Start filesystem watcher to capture external changes (not via API/MCP)
+	if stopFn, err := events.StartFSWatcher(wm.RootPath(), eventHub); err != nil {
+		slog.Warn("Failed to start fs watcher", "error", err)
+	} else {
+		_ = stopFn // kept for future graceful shutdown
+	}
 
 	// Protected mounts (streamable and SSE alias)
 	protected := []struct {
@@ -403,6 +416,8 @@ func httpStatusFromError(err error) int {
 	case strings.HasPrefix(msg, "NOT_FOUND:"):
 		return http.StatusNotFound
 	case strings.HasPrefix(msg, "ALREADY_EXISTS:"):
+		return http.StatusConflict
+	case strings.HasPrefix(msg, "CONFLICT:"):
 		return http.StatusConflict
 	case strings.HasPrefix(msg, "OUT_OF_BOUNDS:"):
 		return http.StatusBadRequest

@@ -19,6 +19,10 @@ export default defineConfig(({ mode }) => {
           target: "http://backend:8080",
           changeOrigin: true,
         },
+        "/events": {
+          target: "http://backend:8080",
+          changeOrigin: true,
+        },
       },
     },
   };

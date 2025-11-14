@@ -207,3 +207,19 @@ func (m *Manager) List() ([]Workspace, error) {
 	}
 	return workspaces, nil
 }
+
+// HeadCommit returns the current HEAD commit hash for the workspace repository.
+// If the repository has no commits yet, it returns an empty string without error.
+func (m *Manager) HeadCommit(workspaceID string) (string, error) {
+	workspacePath := filepath.Join(m.rootPath, workspaceID)
+	repo, err := git.PlainOpen(workspacePath)
+	if err != nil {
+		return "", err
+	}
+	ref, err := repo.Head()
+	if err != nil {
+		// No commits yet or HEAD not found
+		return "", nil
+	}
+	return ref.Hash().String(), nil
+}
