@@ -147,6 +147,12 @@ const FileEditor: React.FC<FileEditorProps> = ({ workspaceId, filePath, lastEven
     '& .cm-content': { textAlign: 'left' }
   });
 
+  // Ensure internal CodeMirror scroller handles overflow and editor fills its container
+  const fullHeight = EditorView.theme({
+    '&': { height: '100%' },
+    '.cm-scroller': { overflow: 'auto' }
+  });
+
   const cmExtensions = React.useMemo(() => {
     const ext = filePath.split('.').pop()?.toLowerCase();
     let languageExt: any[] = [];
@@ -159,7 +165,7 @@ const FileEditor: React.FC<FileEditorProps> = ({ workspaceId, filePath, lastEven
     } else if (ext === 'go') {
       languageExt = [goLang()];
     }
-    return [leftAlign, ...languageExt];
+    return [fullHeight, leftAlign, ...languageExt];
   }, [filePath, leftAlign]);
 
   if (error) {
@@ -224,8 +230,7 @@ const FileEditor: React.FC<FileEditorProps> = ({ workspaceId, filePath, lastEven
               setContent(val);
               setDirty(true);
             }}
-            height="100%"
-            style={{ width: '100%' }}
+            style={{ height: '100%', width: '100%' }}
             theme={vscodeLight}
             basicSetup={{
               lineNumbers: true,

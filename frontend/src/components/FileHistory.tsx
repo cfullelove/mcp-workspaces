@@ -139,7 +139,7 @@ const FileHistory: React.FC<FileHistoryProps> = ({ workspaceId, filePath, hideHe
                 <span>→</span>
                 <span className="px-1.5 py-0.5 rounded bg-gray-100">{selectedCommit.commit.slice(0, 10)}</span>
               </div>
-              <pre className="text-xs whitespace-pre-wrap leading-5 border rounded-md p-3 bg-white">
+              <pre className="text-xs whitespace-pre-wrap overflow-auto leading-5 border rounded-md p-3 bg-white">
               {parts.map((p, idx) => {
                 const bg = p.added ? 'bg-green-100' : p.removed ? 'bg-red-100' : '';
                 const prefix = p.added ? '+ ' : p.removed ? '- ' : '  ';
