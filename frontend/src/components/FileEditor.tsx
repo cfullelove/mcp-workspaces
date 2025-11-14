@@ -2,8 +2,14 @@ import React, { useEffect, useState, useRef } from 'react';
 import api, { ApiError } from '../services/api';
 import type { WorkspaceEvent } from '../services/events';
 import { Button } from './ui/button';
-import { Textarea } from './ui/textarea';
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import CodeMirror from '@uiw/react-codemirror';
+import { javascript } from '@codemirror/lang-javascript';
+import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
+import { languages } from '@codemirror/language-data';
+import { vscodeLight } from '@uiw/codemirror-theme-vscode';
+import { python } from '@codemirror/lang-python';
+import { go as goLang } from '@codemirror/lang-go';
+import { EditorView } from '@codemirror/view';
 import {
   Dialog,
   DialogContent,
@@ -137,17 +143,36 @@ const FileEditor: React.FC<FileEditorProps> = ({ workspaceId, filePath, lastEven
     await fetchContent();
   };
 
+  const leftAlign = EditorView.theme({
+    '& .cm-content': { textAlign: 'left' }
+  });
+
+  const cmExtensions = React.useMemo(() => {
+    const ext = filePath.split('.').pop()?.toLowerCase();
+    let languageExt: any[] = [];
+    if (ext === 'md' || ext === 'markdown') {
+      languageExt = [markdown({ base: markdownLanguage, codeLanguages: languages })];
+    } else if (ext === 'js' || ext === 'jsx' || ext === 'ts' || ext === 'tsx') {
+      languageExt = [javascript({ jsx: true, typescript: ext?.startsWith('ts') })];
+    } else if (ext === 'py' || ext === 'python') {
+      languageExt = [python()];
+    } else if (ext === 'go') {
+      languageExt = [goLang()];
+    }
+    return [leftAlign, ...languageExt];
+  }, [filePath, leftAlign]);
+
   if (error) {
     return <p className="text-red-500">{error}</p>;
   }
 
   return (
-    <Card className="h-full flex flex-col">
-      <CardHeader>
+    <div className="h-full flex flex-col">
+      <div className="px-4 py-4 border-b">
         <div className="flex items-center justify-between">
-          <CardTitle>
-            File Editor: {filePath}
-          </CardTitle>
+          <div className="text-lg font-medium">
+            Editing: {filePath}
+          </div>
           <div className="flex items-center space-x-2">
             {dirty && <span className="text-xs text-orange-600">Unsaved changes</span>}
             <Button variant="outline" size="sm" onClick={() => setHistoryOpen(true)}>
@@ -158,8 +183,8 @@ const FileEditor: React.FC<FileEditorProps> = ({ workspaceId, filePath, lastEven
             </Button>
           </div>
         </div>
-      </CardHeader>
-      <CardContent className="flex-1 min-h-0 flex flex-col">
+      </div>
+      <div className="flex-1 min-h-0 flex flex-col px-4 py-2">
         {/* Remote change banner (when user has unsaved edits and a remote update arrives) */}
         {remoteChanged && !conflict && (
           <div className="mb-3 p-3 rounded border border-yellow-300 bg-yellow-50 text-yellow-900 text-sm flex items-center justify-between">
@@ -192,19 +217,30 @@ const FileEditor: React.FC<FileEditorProps> = ({ workspaceId, filePath, lastEven
           </div>
         )}
 
-        <Textarea
-          value={content}
-          onChange={(e) => {
-            setContent(e.target.value);
-            setDirty(true);
-          }}
-          className="flex-1 min-h-0 resize-none"
-        />
+        <div className="flex-1 min-h-0 w-full">
+          <CodeMirror
+            value={content}
+            onChange={(val) => {
+              setContent(val);
+              setDirty(true);
+            }}
+            height="100%"
+            style={{ width: '100%' }}
+            theme={vscodeLight}
+            basicSetup={{
+              lineNumbers: true,
+              highlightActiveLine: true,
+              bracketMatching: true,
+              autocompletion: true,
+            }}
+            extensions={cmExtensions}
+          />
+        </div>
         <div className="mt-2 text-xs text-gray-500 flex items-center justify-between">
           <span>Etag: {etag || '—'}</span>
           <span>HEAD: {workspaceHead || '—'}</span>
         </div>
-      </CardContent>
+      </div>
 
       {/* History Dialog */}
       <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
@@ -222,7 +258,7 @@ const FileEditor: React.FC<FileEditorProps> = ({ workspaceId, filePath, lastEven
           </div>
         </DialogContent>
       </Dialog>
-    </Card>
+    </div>
   );
 };
 
