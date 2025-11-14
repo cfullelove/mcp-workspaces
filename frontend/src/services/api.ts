@@ -82,6 +82,24 @@ const api = {
   async moveFile(workspaceId: string, source: string, destination: string): Promise<any> {
     return this.post('tools/fs_move_file', { workspaceId, source, destination });
   },
+
+  async getFileHistory(
+    workspaceId: string,
+    path: string,
+    limit?: number
+  ): Promise<{ log: { commit: string; author: string; date: string; message: string; parent?: string }[] }> {
+    const payload: any = { workspaceId, path };
+    if (typeof limit === 'number') payload.limit = limit;
+    return this.post('tools/fs_get_commit_history', payload);
+  },
+
+  async readFileAtCommit(
+    workspaceId: string,
+    path: string,
+    commit: string
+  ): Promise<{ content: string; commit: string }> {
+    return this.post('tools/fs_read_file_at_commit', { workspaceId, path, commit });
+  },
 };
 
 export default api;

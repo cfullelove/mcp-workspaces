@@ -331,11 +331,15 @@ const WorkspaceBrowser: React.FC<WorkspaceBrowserProps> = ({ onLogout }) => {
       <div className="w-3/4 flex flex-col">
         {selectedWorkspace ? (
           <div className="flex flex-col h-full">
-            <div className="flex-grow p-4 overflow-y-auto">
+            <div className="flex-1 p-4 overflow-hidden">
               {selectedFile ? (
-                <FileEditor workspaceId={selectedWorkspace} filePath={selectedFile} lastEvent={lastEvent} />
+                <div className="h-full">
+                  <FileEditor workspaceId={selectedWorkspace} filePath={selectedFile} lastEvent={lastEvent} />
+                </div>
               ) : (
-                <p className="text-gray-500">Select a file from the tree</p>
+                <div className="flex items-center justify-center h-full">
+                  <p className="text-gray-500">Select a file from the tree</p>
+                </div>
               )}
             </div>
           </div>

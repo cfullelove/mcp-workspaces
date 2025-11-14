@@ -116,6 +116,7 @@ type CommitLog struct {
 	Author  string `json:"author"`
 	Date    string `json:"date"`
 	Message string `json:"message"`
+	Parent  string `json:"parent,omitempty"`
 }
 type GetCommitHistoryResponse struct {
 	Log []CommitLog `json:"log"`
@@ -233,6 +234,16 @@ type DeleteFileRequest struct {
 type DeleteFileResponse struct {
 	Path   string `json:"path"`
 	Commit string `json:"commit"`
+}
+
+type ReadFileAtCommitRequest struct {
+	WorkspaceID string `json:"workspaceId"`
+	Path        string `json:"path"`
+	Commit      string `json:"commit"`
+}
+type ReadFileAtCommitResponse struct {
+	Content string `json:"content"`
+	Commit  string `json:"commit"`
 }
 
 // buildServer constructs an MCP SDK server and registers tools using typed handlers.
@@ -422,6 +433,19 @@ func buildServer(wm *workspace.Manager) *sdkmcp.Server {
 			out, err := FSDeleteFile(ctx, wm, input)
 			if err != nil {
 				return nil, DeleteFileResponse{}, err
+			}
+			return nil, out, nil
+		},
+	)
+
+	// fs/read_file_at_commit
+	sdkmcp.AddTool[ReadFileAtCommitRequest, ReadFileAtCommitResponse](
+		server,
+		newTool("fs_read_file_at_commit", "Read a file's content at a specific commit"),
+		func(ctx context.Context, req *sdkmcp.CallToolRequest, input ReadFileAtCommitRequest) (*sdkmcp.CallToolResult, ReadFileAtCommitResponse, error) {
+			out, err := FSReadFileAtCommit(ctx, wm, input)
+			if err != nil {
+				return nil, ReadFileAtCommitResponse{}, err
 			}
 			return nil, out, nil
 		},

@@ -385,6 +385,20 @@ func restToolsHandler(wm *workspace.Manager) http.Handler {
 			w.WriteHeader(http.StatusOK)
 			_ = enc.Encode(out)
 
+		case "fs_read_file_at_commit":
+			var in ReadFileAtCommitRequest
+			if err = json.NewDecoder(r.Body).Decode(&in); err != nil {
+				writeRESTError(w, errBadRequest(err))
+				return
+			}
+			out, e := FSReadFileAtCommit(r.Context(), wm, in)
+			if e != nil {
+				writeRESTError(w, e)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			_ = enc.Encode(out)
+
 		default:
 			http.NotFound(w, r)
 			return
