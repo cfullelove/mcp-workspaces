@@ -47,6 +47,11 @@ type Hub struct {
 	ws     map[string]*workspaceState
 	cap    int
 	closed bool
+
+	// recent holds timestamps of recently published events keyed by workspace|type|path.
+	recent map[string]time.Time
+	// recentPath holds timestamps keyed by workspace|path regardless of type (to suppress fs echoes).
+	recentPath map[string]time.Time
 }
 
 // NewHub creates an in-memory event hub with a per-workspace ring buffer capacity.
@@ -55,8 +60,10 @@ func NewHub(ringCapacity int) *Hub {
 		ringCapacity = 200
 	}
 	return &Hub{
-		ws:  make(map[string]*workspaceState),
-		cap: ringCapacity,
+		ws:         make(map[string]*workspaceState),
+		cap:        ringCapacity,
+		recent:     make(map[string]time.Time),
+		recentPath: make(map[string]time.Time),
 	}
 }
 
@@ -108,6 +115,11 @@ func (h *Hub) Publish(workspaceID string, evt WorkspaceEvent) {
 		ws.ring[ws.ringStart] = evt
 		ws.ringStart = (ws.ringStart + 1) % ws.ringCap
 	}
+
+	// Mark as recently published to suppress duplicate fswatch echoes
+	now := time.Now()
+	h.recent[makeRecentKey(workspaceID, evt.Type, evt.Path)] = now
+	h.recentPath[makeRecentPathKey(workspaceID, evt.Path)] = now
 
 	// Snapshot subscribers to avoid holding lock during sends
 	subs := make([]subscriber, 0, len(ws.subs))
@@ -201,6 +213,48 @@ func (h *Hub) collectSinceLocked(ws *workspaceState, sinceID int64) []WorkspaceE
 		}
 	}
 	return out
+}
+
+func makeRecentKey(workspaceID, evtType, path string) string {
+	return workspaceID + "|" + evtType + "|" + path
+}
+
+func makeRecentPathKey(workspaceID, path string) string {
+	return workspaceID + "||" + path
+}
+
+// RecentlyPublished reports whether an event with same workspaceId, type and path
+// has been published within the given time window.
+func (h *Hub) RecentlyPublished(workspaceID, path, evtType string, within time.Duration) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if h.recent == nil {
+		return false
+	}
+	key := makeRecentKey(workspaceID, evtType, path)
+	if t, ok := h.recent[key]; ok {
+		if time.Since(t) <= within {
+			return true
+		}
+	}
+	return false
+}
+
+// RecentlyPublishedForPath reports whether any event for the same workspaceId and path
+// has been published within the given time window (independent of type).
+func (h *Hub) RecentlyPublishedForPath(workspaceID, path string, within time.Duration) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if h.recentPath == nil {
+		return false
+	}
+	key := makeRecentPathKey(workspaceID, path)
+	if t, ok := h.recentPath[key]; ok {
+		if time.Since(t) <= within {
+			return true
+		}
+	}
+	return false
 }
 
 // Close shuts down the hub and all subscriptions.

@@ -68,8 +68,15 @@ func StartFSWatcher(root string, hub *Hub) (func(), error) {
 		if wsID == "" || relPath == "" {
 			return
 		}
-		// Ignore protected names
-		if isProtectedName(filepath.Base(relPath)) {
+		// Ignore protected paths (any segment like .git or .gitkeep)
+		if isProtectedPath(relPath) {
+			return
+		}
+		// Suppress duplicate fs events shortly after an API-originated publish
+		// (suppress if same type OR any event for this path was just published)
+		// Use a wider window to avoid duplicate echoes racing in after API-originated publishes.
+		if hub.RecentlyPublished(wsID, relPath, evtType, 1*time.Second) ||
+			hub.RecentlyPublishedForPath(wsID, relPath, 1*time.Second) {
 			return
 		}
 		hub.Publish(wsID, WorkspaceEvent{
@@ -206,7 +213,21 @@ func StartFSWatcher(root string, hub *Hub) (func(), error) {
 	return stopFn, nil
 }
 
-// local copy of protected name logic; keep in sync with mcpsdk/tools.go
+// local copy of protected path logic; keep in sync with mcpsdk/tools.go
 func isProtectedName(name string) bool {
 	return name == ".git" || name == ".gitkeep"
+}
+
+// isProtectedPath returns true if any segment of rel equals a protected name.
+func isProtectedPath(rel string) bool {
+	cleaned := filepath.Clean(rel)
+	for _, seg := range strings.Split(cleaned, string(os.PathSeparator)) {
+		if seg == "" {
+			continue
+		}
+		if isProtectedName(seg) {
+			return true
+		}
+	}
+	return false
 }
