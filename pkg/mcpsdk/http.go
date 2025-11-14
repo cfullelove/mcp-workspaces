@@ -11,13 +11,14 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"mcp-workspace-manager/pkg/events"
 	"mcp-workspace-manager/pkg/workspace"
 )
 
 // RunHTTP serves the MCP SDK server over HTTP using the Streamable HTTP transport,
 // and exposes a REST mirror of the tools under /api/tools/{toolName}.
 // If authTokens is non-empty, Bearer auth is required for /mcp*, /api/* endpoints.
-func RunHTTP(host string, port int, wm *workspace.Manager, authTokens []string) {
+func RunHTTP(host string, port int, wm *workspace.Manager, authTokens []string, rootHandler http.Handler) {
 	server := buildServer(wm)
 
 	// Create a streamable HTTP handler (supports resumption and reliable streaming).
@@ -26,6 +27,18 @@ func RunHTTP(host string, port int, wm *workspace.Manager, authTokens []string) 
 	}, nil)
 
 	mux := http.NewServeMux()
+
+	// Initialize global event hub and mount SSE endpoint for browsers
+	// Note: Authorization for /events is handled by the SSE handler (query token or Bearer).
+	eventHub = events.NewHub(200)
+	mux.Handle("/events", events.SSEHandler(eventHub, authTokens))
+
+	// Start filesystem watcher to capture external changes (not via API/MCP)
+	if stopFn, err := events.StartFSWatcher(wm.RootPath(), eventHub); err != nil {
+		slog.Warn("Failed to start fs watcher", "error", err)
+	} else {
+		_ = stopFn // kept for future graceful shutdown
+	}
 
 	// Protected mounts (streamable and SSE alias)
 	protected := []struct {
@@ -49,6 +62,11 @@ func RunHTTP(host string, port int, wm *workspace.Manager, authTokens []string) 
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("OK"))
 	})
+
+	// Serve the embedded frontend
+	if rootHandler != nil {
+		mux.Handle("/", rootHandler)
+	}
 
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	slog.Info("Starting MCP SDK HTTP server", "host", host, "port", port, "addr", addr, "auth_enabled", len(authTokens) > 0)
@@ -150,6 +168,34 @@ func restToolsHandler(wm *workspace.Manager) http.Handler {
 				return
 			}
 			out, e := WorkspaceCreate(r.Context(), wm, in)
+			if e != nil {
+				writeRESTError(w, e)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			_ = enc.Encode(out)
+
+		case "fs_delete_file":
+			var in DeleteFileRequest
+			if err = json.NewDecoder(r.Body).Decode(&in); err != nil {
+				writeRESTError(w, errBadRequest(err))
+				return
+			}
+			out, e := FSDeleteFile(r.Context(), wm, in)
+			if e != nil {
+				writeRESTError(w, e)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			_ = enc.Encode(out)
+
+		case "workspace_list":
+			var in ListWorkspacesRequest
+			if err = json.NewDecoder(r.Body).Decode(&in); err != nil {
+				writeRESTError(w, errBadRequest(err))
+				return
+			}
+			out, e := WorkspaceList(r.Context(), wm, in)
 			if e != nil {
 				writeRESTError(w, e)
 				return
@@ -370,6 +416,8 @@ func httpStatusFromError(err error) int {
 	case strings.HasPrefix(msg, "NOT_FOUND:"):
 		return http.StatusNotFound
 	case strings.HasPrefix(msg, "ALREADY_EXISTS:"):
+		return http.StatusConflict
+	case strings.HasPrefix(msg, "CONFLICT:"):
 		return http.StatusConflict
 	case strings.HasPrefix(msg, "OUT_OF_BOUNDS:"):
 		return http.StatusBadRequest

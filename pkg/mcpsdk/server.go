@@ -34,12 +34,25 @@ type CreateWorkspaceResponse struct {
 	Path        string `json:"path"`
 }
 
+type ListWorkspacesRequest struct{}
+
+type WorkspaceInfo struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
+type ListWorkspacesResponse struct {
+	Workspaces []WorkspaceInfo `json:"workspaces"`
+}
+
 // ===== FS tool types =====
 
 type WriteFileRequest struct {
-	WorkspaceID string `json:"workspaceId"`
-	Path        string `json:"path"`
-	Content     string `json:"content"`
+	WorkspaceID          string  `json:"workspaceId"`
+	Path                 string  `json:"path"`
+	Content              string  `json:"content"`
+	IfMatchFileEtag      *string `json:"ifMatchFileEtag,omitempty"`
+	IfMatchWorkspaceHead *string `json:"ifMatchWorkspaceHead,omitempty"`
 }
 type WriteFileResponse struct {
 	Path         string `json:"path"`
@@ -55,10 +68,13 @@ type ReadFileRequest struct {
 	Tail        *int   `json:"tail,omitempty"`
 }
 type ReadFileResponse struct {
-	Content    string `json:"content"`
-	TotalLines int    `json:"totalLines,omitempty"`
-	Head       *int   `json:"head,omitempty"`
-	Tail       *int   `json:"tail,omitempty"`
+	Content       string `json:"content"`
+	TotalLines    int    `json:"totalLines,omitempty"`
+	Head          *int   `json:"head,omitempty"`
+	Tail          *int   `json:"tail,omitempty"`
+	Etag          string `json:"etag,omitempty"`
+	Mtime         string `json:"mtime,omitempty"`
+	WorkspaceHead string `json:"workspaceHead,omitempty"`
 }
 
 type CreateDirectoryRequest struct {
@@ -121,10 +137,12 @@ type Edit struct {
 	NewText string `json:"newText"`
 }
 type EditFileRequest struct {
-	WorkspaceID string `json:"workspaceId"`
-	Path        string `json:"path"`
-	Edits       []Edit `json:"edits"`
-	DryRun      bool   `json:"dryRun"`
+	WorkspaceID          string  `json:"workspaceId"`
+	Path                 string  `json:"path"`
+	Edits                []Edit  `json:"edits"`
+	DryRun               bool    `json:"dryRun"`
+	IfMatchFileEtag      *string `json:"ifMatchFileEtag,omitempty"`
+	IfMatchWorkspaceHead *string `json:"ifMatchWorkspaceHead,omitempty"`
 }
 type EditFileDryRunResponse struct {
 	DryRun  bool   `json:"dryRun"`
@@ -189,8 +207,8 @@ type DirectoryTreeRequest struct {
 	ExcludePatterns []string `json:"excludePatterns,omitempty"`
 }
 type TreeNode struct {
-	Name     string     `json:"name"`
-	Type     string     `json:"type"`
+	Name     string      `json:"name"`
+	Type     string      `json:"type"`
 	Children *[]TreeNode `json:"children,omitempty"`
 }
 type DirectoryTreeResponse struct {
@@ -205,6 +223,16 @@ type ReadMediaFileResponse struct {
 	MimeType string `json:"mimeType"`
 	Base64   string `json:"base64"`
 	Size     int64  `json:"size"`
+}
+
+type DeleteFileRequest struct {
+	WorkspaceID string `json:"workspaceId"`
+	Path        string `json:"path"`
+}
+
+type DeleteFileResponse struct {
+	Path   string `json:"path"`
+	Commit string `json:"commit"`
 }
 
 // buildServer constructs an MCP SDK server and registers tools using typed handlers.
@@ -224,6 +252,19 @@ func buildServer(wm *workspace.Manager) *sdkmcp.Server {
 			out, err := WorkspaceCreate(ctx, wm, input)
 			if err != nil {
 				return nil, CreateWorkspaceResponse{}, err
+			}
+			return nil, out, nil
+		},
+	)
+
+	// workspace/list
+	sdkmcp.AddTool[ListWorkspacesRequest, ListWorkspacesResponse](
+		server,
+		newTool("workspace_list", "List available workspaces"),
+		func(ctx context.Context, req *sdkmcp.CallToolRequest, input ListWorkspacesRequest) (*sdkmcp.CallToolResult, ListWorkspacesResponse, error) {
+			out, err := WorkspaceList(ctx, wm, input)
+			if err != nil {
+				return nil, ListWorkspacesResponse{}, err
 			}
 			return nil, out, nil
 		},
@@ -373,6 +414,19 @@ func buildServer(wm *workspace.Manager) *sdkmcp.Server {
 		},
 	)
 
+	// fs/delete_file
+	sdkmcp.AddTool[DeleteFileRequest, DeleteFileResponse](
+		server,
+		newTool("fs_delete_file", "Delete a file or directory"),
+		func(ctx context.Context, req *sdkmcp.CallToolRequest, input DeleteFileRequest) (*sdkmcp.CallToolResult, DeleteFileResponse, error) {
+			out, err := FSDeleteFile(ctx, wm, input)
+			if err != nil {
+				return nil, DeleteFileResponse{}, err
+			}
+			return nil, out, nil
+		},
+	)
+
 	return server
 }
 
@@ -384,6 +438,10 @@ func buildTree(root string, excludePatterns []string) ([]TreeNode, error) {
 		return nil, err
 	}
 	for _, f := range files {
+		// Always hide protected names
+		if isProtectedName(f.Name()) {
+			continue
+		}
 		// Exclude by name
 		isExcluded := false
 		for _, pattern := range excludePatterns {

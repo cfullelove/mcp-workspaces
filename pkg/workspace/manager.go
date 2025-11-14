@@ -18,6 +18,11 @@ type Manager struct {
 	rootPath string
 }
 
+type Workspace struct {
+	Name string
+	Path string
+}
+
 // NewManager creates a new Workspace Manager.
 // It ensures the root directory for workspaces exists.
 func NewManager(rootPath string) (*Manager, error) {
@@ -178,4 +183,43 @@ func (m *Manager) Commit(workspaceID, message, authorName string) (string, error
 
 	slog.Debug("Successfully committed changes", "workspaceId", workspaceID, "commit", commitHash.String())
 	return commitHash.String(), nil
+}
+
+// List returns a slice of all workspaces.
+func (m *Manager) List() ([]Workspace, error) {
+	entries, err := os.ReadDir(m.rootPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read workspaces root directory: %w", err)
+	}
+
+	var workspaces []Workspace
+	for _, entry := range entries {
+		if entry.IsDir() {
+			// Basic check to see if it's a git repository
+			_, err := git.PlainOpen(filepath.Join(m.rootPath, entry.Name()))
+			if err == nil {
+				workspaces = append(workspaces, Workspace{
+					Name: entry.Name(),
+					Path: filepath.Join(m.rootPath, entry.Name()),
+				})
+			}
+		}
+	}
+	return workspaces, nil
+}
+
+// HeadCommit returns the current HEAD commit hash for the workspace repository.
+// If the repository has no commits yet, it returns an empty string without error.
+func (m *Manager) HeadCommit(workspaceID string) (string, error) {
+	workspacePath := filepath.Join(m.rootPath, workspaceID)
+	repo, err := git.PlainOpen(workspacePath)
+	if err != nil {
+		return "", err
+	}
+	ref, err := repo.Head()
+	if err != nil {
+		// No commits yet or HEAD not found
+		return "", nil
+	}
+	return ref.Hash().String(), nil
 }

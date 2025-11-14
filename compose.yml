@@ -1,0 +1,20 @@
+services:
+
+  backend:
+    image: debian:latest
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./mcp-workspace-manager:/usr/local/bin/mcp-workspace-manager
+      - ./workspaces:/opt/workspaces
+    command: [ "/usr/local/bin/mcp-workspace-manager", "--workspaces-root=/opt/workspaces", "--transport=http", "--host=0.0.0.0", "--port=8080" ]
+  frontend:
+    build:
+      context: ./frontend
+    command: sh -lc "npm install && npm run dev -- --host 0.0.0.0 --port 5173"
+    working_dir: /usr/src/app
+    volumes:
+      - ./frontend:/usr/src/app
+    environment: []
+    ports:
+      - "5173:5173"
