@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
@@ -148,6 +149,102 @@ func (m *Manager) GetCommitHistory(workspaceID string, limit int) ([]object.Comm
 		commits = append(commits, *commit)
 	}
 	return commits, nil
+}
+
+// GetFileCommitHistory returns commits that modified the specified file path within a workspace.
+func (m *Manager) GetFileCommitHistory(workspaceID, relPath string, limit int) ([]object.Commit, error) {
+	workspacePath := filepath.Join(m.rootPath, workspaceID)
+	repo, err := git.PlainOpen(workspacePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open git repository: %w", err)
+	}
+
+	cIter, err := repo.Log(&git.LogOptions{Order: git.LogOrderCommitterTime})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get commit iterator: %w", err)
+	}
+	defer cIter.Close()
+
+	var commits []object.Commit
+	for {
+		if len(commits) >= limit {
+			break
+		}
+		commit, err := cIter.Next()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, err
+		}
+
+		// Compare with first parent if any; if none (root), include if file exists in this commit.
+		if parent, err := commit.Parents().Next(); err == nil && parent != nil {
+			pt, err := parent.Tree()
+			if err != nil {
+				continue
+			}
+			ct, err := commit.Tree()
+			if err != nil {
+				continue
+			}
+			patch, err := pt.Patch(ct)
+			if err != nil {
+				continue
+			}
+			fileChanged := false
+			for _, fp := range patch.FilePatches() {
+				from, to := fp.Files()
+				if (from != nil && from.Path() == relPath) || (to != nil && to.Path() == relPath) {
+					fileChanged = true
+					break
+				}
+			}
+			if fileChanged {
+				commits = append(commits, *commit)
+			}
+		} else {
+			// Root commit case: include if the file exists in this tree (treated as an addition)
+			if t, err := commit.Tree(); err == nil {
+				if _, ferr := t.File(relPath); ferr == nil {
+					commits = append(commits, *commit)
+				}
+			}
+		}
+	}
+	return commits, nil
+}
+
+// ReadFileAtCommit returns the file content at a given commit hash.
+func (m *Manager) ReadFileAtCommit(workspaceID, relPath, commitHash string) (string, error) {
+	workspacePath := filepath.Join(m.rootPath, workspaceID)
+	repo, err := git.PlainOpen(workspacePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open git repository: %w", err)
+	}
+	h := plumbing.NewHash(commitHash)
+	c, err := repo.CommitObject(h)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve commit: %w", err)
+	}
+	t, err := c.Tree()
+	if err != nil {
+		return "", fmt.Errorf("failed to get commit tree: %w", err)
+	}
+	f, err := t.File(relPath)
+	if err != nil {
+		return "", fmt.Errorf("file not found at commit")
+	}
+	r, err := f.Reader()
+	if err != nil {
+		return "", fmt.Errorf("failed to open file reader: %w", err)
+	}
+	defer r.Close()
+	b, err := io.ReadAll(r)
+	if err != nil {
+		return "", fmt.Errorf("failed to read file at commit: %w", err)
+	}
+	return string(b), nil
 }
 
 // Commit creates a new commit in the specified workspace's git repository.

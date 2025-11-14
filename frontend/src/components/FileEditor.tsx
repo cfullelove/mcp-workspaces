@@ -4,6 +4,14 @@ import type { WorkspaceEvent } from '../services/events';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogClose,
+} from "./ui/dialog";
+import FileHistory from './FileHistory';
 
 interface FileEditorProps {
   workspaceId: string;
@@ -24,6 +32,7 @@ const FileEditor: React.FC<FileEditorProps> = ({ workspaceId, filePath, lastEven
   const [saving, setSaving] = useState<boolean>(false);
   const [remoteChanged, setRemoteChanged] = useState<boolean>(false);
   const [conflict, setConflict] = useState<{ message?: string } | null>(null);
+  const [historyOpen, setHistoryOpen] = useState<boolean>(false);
 
   const mounted = useRef<boolean>(false);
   const savingRef = useRef<boolean>(false);
@@ -133,7 +142,7 @@ const FileEditor: React.FC<FileEditorProps> = ({ workspaceId, filePath, lastEven
   }
 
   return (
-    <Card>
+    <Card className="h-full flex flex-col">
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle>
@@ -141,13 +150,16 @@ const FileEditor: React.FC<FileEditorProps> = ({ workspaceId, filePath, lastEven
           </CardTitle>
           <div className="flex items-center space-x-2">
             {dirty && <span className="text-xs text-orange-600">Unsaved changes</span>}
+            <Button variant="outline" size="sm" onClick={() => setHistoryOpen(true)}>
+              History
+            </Button>
             <Button variant="outline" onClick={handleSave} disabled={saving || !dirty}>
               {saving ? 'Saving...' : 'Save'}
             </Button>
           </div>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="flex-1 min-h-0 flex flex-col">
         {/* Remote change banner (when user has unsaved edits and a remote update arrives) */}
         {remoteChanged && !conflict && (
           <div className="mb-3 p-3 rounded border border-yellow-300 bg-yellow-50 text-yellow-900 text-sm flex items-center justify-between">
@@ -186,13 +198,30 @@ const FileEditor: React.FC<FileEditorProps> = ({ workspaceId, filePath, lastEven
             setContent(e.target.value);
             setDirty(true);
           }}
-          className="h-96"
+          className="flex-1 min-h-0 resize-none"
         />
         <div className="mt-2 text-xs text-gray-500 flex items-center justify-between">
           <span>Etag: {etag || '—'}</span>
           <span>HEAD: {workspaceHead || '—'}</span>
         </div>
       </CardContent>
+
+      {/* History Dialog */}
+      <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+        <DialogContent className="flex flex-col max-w-6xl w-[95vw] h-[85vh] p-2 sm:p-3">
+          <DialogHeader>
+            <DialogTitle>History: {filePath}</DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 min-h-0">
+            <FileHistory workspaceId={workspaceId} filePath={filePath} hideHeader />
+          </div>
+          <div className="mt-2 flex justify-end">
+            <DialogClose asChild>
+              <Button variant="outline" size="sm">Close</Button>
+            </DialogClose>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 };

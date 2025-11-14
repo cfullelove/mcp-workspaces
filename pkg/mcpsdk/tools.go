@@ -292,20 +292,67 @@ func FSGetCommitHistory(ctx context.Context, wm *workspace.Manager, a GetCommitH
 	if a.Limit > 0 {
 		limit = a.Limit
 	}
-	commits, err := wm.GetCommitHistory(a.WorkspaceID, limit)
+
+	// Determine which history to fetch: workspace-wide or file-scoped
+	if strings.TrimSpace(a.Path) != "" {
+		// Per-file history
+		fileCommits, err := wm.GetFileCommitHistory(a.WorkspaceID, a.Path, limit)
+		if err != nil {
+			return GetCommitHistoryResponse{}, fmt.Errorf("INTERNAL: failed to get file commit history: %v", err)
+		}
+		var log []CommitLog
+		for _, c := range fileCommits {
+			var parent string
+			if p, err := c.Parents().Next(); err == nil && p != nil {
+				parent = p.Hash.String()
+			}
+			log = append(log, CommitLog{
+				Commit:  c.Hash.String(),
+				Author:  c.Author.String(),
+				Date:    c.Author.When.UTC().Format(time.RFC3339),
+				Message: c.Message,
+				Parent:  parent,
+			})
+		}
+		return GetCommitHistoryResponse{Log: log}, nil
+	}
+
+	// Workspace-wide history (fallback)
+	wsCommits, err := wm.GetCommitHistory(a.WorkspaceID, limit)
 	if err != nil {
 		return GetCommitHistoryResponse{}, fmt.Errorf("INTERNAL: failed to get commit history: %v", err)
 	}
 	var log []CommitLog
-	for _, c := range commits {
+	for _, c := range wsCommits {
+		var parent string
+		if p, err := c.Parents().Next(); err == nil && p != nil {
+			parent = p.Hash.String()
+		}
 		log = append(log, CommitLog{
 			Commit:  c.Hash.String(),
 			Author:  c.Author.String(),
 			Date:    c.Author.When.UTC().Format(time.RFC3339),
 			Message: c.Message,
+			Parent:  parent,
 		})
 	}
 	return GetCommitHistoryResponse{Log: log}, nil
+}
+
+// FSReadFileAtCommit returns the content of a file at a specific commit.
+func FSReadFileAtCommit(ctx context.Context, wm *workspace.Manager, a ReadFileAtCommitRequest) (ReadFileAtCommitResponse, error) {
+	if a.WorkspaceID == "" || a.Path == "" || a.Commit == "" {
+		return ReadFileAtCommitResponse{}, fmt.Errorf("INVALID_INPUT: 'workspaceId', 'path', and 'commit' are required")
+	}
+	if isProtectedPath(a.Path) {
+		return ReadFileAtCommitResponse{}, fmt.Errorf("NOT_FOUND: file not found")
+	}
+	content, err := wm.ReadFileAtCommit(a.WorkspaceID, a.Path, a.Commit)
+	if err != nil {
+		// Hide internal error details behind NOT_FOUND to keep API simple
+		return ReadFileAtCommitResponse{}, fmt.Errorf("NOT_FOUND: file not found")
+	}
+	return ReadFileAtCommitResponse{Content: content, Commit: a.Commit}, nil
 }
 
 func FSMoveFile(ctx context.Context, wm *workspace.Manager, a MoveFileRequest) (MoveFileResponse, error) {
