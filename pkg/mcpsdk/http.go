@@ -190,12 +190,7 @@ func restToolsHandler(wm *workspace.Manager) http.Handler {
 			_ = enc.Encode(out)
 
 		case "workspace_list":
-			var in ListWorkspacesRequest
-			if err = json.NewDecoder(r.Body).Decode(&in); err != nil {
-				writeRESTError(w, errBadRequest(err))
-				return
-			}
-			out, e := WorkspaceList(r.Context(), wm, in)
+			out, e := WorkspaceList(r.Context(), wm)
 			if e != nil {
 				writeRESTError(w, e)
 				return

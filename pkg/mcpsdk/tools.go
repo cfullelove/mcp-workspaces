@@ -50,7 +50,7 @@ func WorkspaceCreate(ctx context.Context, wm *workspace.Manager, input CreateWor
 	return CreateWorkspaceResponse{WorkspaceID: id, Path: path}, nil
 }
 
-func WorkspaceList(ctx context.Context, wm *workspace.Manager, input ListWorkspacesRequest) (ListWorkspacesResponse, error) {
+func WorkspaceList(ctx context.Context, wm *workspace.Manager) (ListWorkspacesResponse, error) {
 	workspaces, err := wm.List()
 	if err != nil {
 		return ListWorkspacesResponse{}, err
