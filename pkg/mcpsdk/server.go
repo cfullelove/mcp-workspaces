@@ -34,7 +34,9 @@ type CreateWorkspaceResponse struct {
 	Path        string `json:"path"`
 }
 
-type ListWorkspacesRequest struct{}
+type ListWorkspacesRequest struct {
+	Noop *bool `json:"_noop,omitempty" jsonschema:"unused placeholder to satisfy strict schema validators; ignored by server"`
+}
 
 type WorkspaceInfo struct {
 	Name string `json:"name"`
@@ -269,9 +271,10 @@ func buildServer(wm *workspace.Manager) *sdkmcp.Server {
 	)
 
 	// workspace/list
+	twl := newTool("workspace_list", "List available workspaces")
 	sdkmcp.AddTool[ListWorkspacesRequest, ListWorkspacesResponse](
 		server,
-		newTool("workspace_list", "List available workspaces"),
+		twl,
 		func(ctx context.Context, req *sdkmcp.CallToolRequest, input ListWorkspacesRequest) (*sdkmcp.CallToolResult, ListWorkspacesResponse, error) {
 			out, err := WorkspaceList(ctx, wm, input)
 			if err != nil {
