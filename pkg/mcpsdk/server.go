@@ -269,9 +269,11 @@ func buildServer(wm *workspace.Manager) *sdkmcp.Server {
 	)
 
 	// workspace/list
+	twl := newTool("workspace_list", "List available workspaces")
+	twl.InputSchema = &emptySchema
 	sdkmcp.AddTool[ListWorkspacesRequest, ListWorkspacesResponse](
 		server,
-		newTool("workspace_list", "List available workspaces"),
+		twl,
 		func(ctx context.Context, req *sdkmcp.CallToolRequest, input ListWorkspacesRequest) (*sdkmcp.CallToolResult, ListWorkspacesResponse, error) {
 			out, err := WorkspaceList(ctx, wm, input)
 			if err != nil {
