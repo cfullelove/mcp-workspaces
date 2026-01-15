@@ -10,9 +10,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/sergi/go-diff/diffmatchpatch"
 
@@ -55,7 +57,7 @@ func WorkspaceList(ctx context.Context, wm *workspace.Manager, input ListWorkspa
 	if err != nil {
 		return ListWorkspacesResponse{}, err
 	}
-	var out []WorkspaceInfo
+	out := make([]WorkspaceInfo, 0, len(workspaces))
 	for _, w := range workspaces {
 		out = append(out, WorkspaceInfo{
 			Name: w.Name,
@@ -242,7 +244,7 @@ func FSListDirectory(ctx context.Context, wm *workspace.Manager, a ListDirectory
 	if err != nil {
 		return ListDirectoryResponse{}, fmt.Errorf("INTERNAL: failed to list directory: %v", err)
 	}
-	var entries []string
+	entries := make([]string, 0, len(files))
 	for _, f := range files {
 		if isProtectedName(f.Name()) {
 			continue
@@ -300,7 +302,7 @@ func FSGetCommitHistory(ctx context.Context, wm *workspace.Manager, a GetCommitH
 		if err != nil {
 			return GetCommitHistoryResponse{}, fmt.Errorf("INTERNAL: failed to get file commit history: %v", err)
 		}
-		var log []CommitLog
+		log := make([]CommitLog, 0, len(fileCommits))
 		for _, c := range fileCommits {
 			var parent string
 			if p, err := c.Parents().Next(); err == nil && p != nil {
@@ -322,7 +324,7 @@ func FSGetCommitHistory(ctx context.Context, wm *workspace.Manager, a GetCommitH
 	if err != nil {
 		return GetCommitHistoryResponse{}, fmt.Errorf("INTERNAL: failed to get commit history: %v", err)
 	}
-	var log []CommitLog
+	log := make([]CommitLog, 0, len(wsCommits))
 	for _, c := range wsCommits {
 		var parent string
 		if p, err := c.Parents().Next(); err == nil && p != nil {
@@ -337,6 +339,137 @@ func FSGetCommitHistory(ctx context.Context, wm *workspace.Manager, a GetCommitH
 		})
 	}
 	return GetCommitHistoryResponse{Log: log}, nil
+}
+
+func FSSearchText(ctx context.Context, wm *workspace.Manager, a SearchTextRequest) (SearchTextResponse, error) {
+	if a.WorkspaceID == "" || a.Query == "" {
+		return SearchTextResponse{}, fmt.Errorf("INVALID_INPUT: 'workspaceId' and 'query' are required")
+	}
+	start, err := wm.SafePath(a.WorkspaceID, a.Path)
+	if err != nil {
+		return SearchTextResponse{}, fmt.Errorf("OUT_OF_BOUNDS: %v", err)
+	}
+
+	matches := make([]TextMatch, 0)
+	// Compile regex if needed
+	var re *regexp.Regexp
+	if a.Regex {
+		if !a.CaseSensitive {
+			a.Query = "(?i)" + a.Query
+		}
+		r, err := regexp.Compile(a.Query)
+		if err != nil {
+			return SearchTextResponse{}, fmt.Errorf("INVALID_INPUT: invalid regex: %v", err)
+		}
+		re = r
+	} else if !a.CaseSensitive {
+		a.Query = strings.ToLower(a.Query)
+	}
+
+	err = filepath.WalkDir(start, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if isProtectedName(d.Name()) {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if isProtectedName(d.Name()) {
+			return nil
+		}
+
+		// Apply include/exclude globs
+		if len(a.IncludeGlobs) > 0 {
+			included := false
+			for _, gl := range a.IncludeGlobs {
+				if ok, _ := filepath.Match(gl, d.Name()); ok {
+					included = true
+					break
+				}
+			}
+			if !included {
+				return nil
+			}
+		}
+		if len(a.ExcludeGlobs) > 0 {
+			for _, gl := range a.ExcludeGlobs {
+				if ok, _ := filepath.Match(gl, d.Name()); ok {
+					return nil
+				}
+			}
+		}
+
+		// Read file
+		contentBytes, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		// Skip if looks binary
+		if !utf8.Valid(contentBytes) {
+			return nil
+		}
+		// Skip based on size? (Optional per prompt, implementing basic skip)
+		const maxSearchSize = 10 * 1024 * 1024 // 10MB
+		if len(contentBytes) > maxSearchSize {
+			return nil
+		}
+
+		content := string(contentBytes)
+		lines := strings.Split(content, "\n")
+		// Corresponding lower lines not needed if we search line by line.
+		// Be efficient: if regex, scan line by line. If simple, strings.Index.
+
+		wsRoot, _ := wm.SafePath(a.WorkspaceID, ".")
+		relPath, _ := filepath.Rel(wsRoot, path)
+
+		for i, line := range lines {
+			lineIdx := i + 1
+			searchLine := line
+			if !a.Regex && !a.CaseSensitive {
+				searchLine = strings.ToLower(line)
+			}
+
+			if a.Regex {
+				locs := re.FindAllStringIndex(line, -1)
+				for _, loc := range locs {
+					matches = append(matches, TextMatch{
+						Path:       relPath,
+						LineNumber: lineIdx,
+						LineText:   line,
+						StartCol:   loc[0] + 1,
+						EndCol:     loc[1] + 1,
+					})
+				}
+			} else {
+				// Simple substring
+				startIdx := 0
+				for {
+					idx := strings.Index(searchLine[startIdx:], a.Query)
+					if idx == -1 {
+						break
+					}
+					realIdx := startIdx + idx
+					matches = append(matches, TextMatch{
+						Path:       relPath,
+						LineNumber: lineIdx,
+						LineText:   line,
+						StartCol:   realIdx + 1,
+						EndCol:     realIdx + len(a.Query) + 1,
+					})
+					startIdx = realIdx + 1
+				}
+			}
+		}
+		return nil
+	})
+
+	if err != nil {
+		return SearchTextResponse{}, fmt.Errorf("INTERNAL: search failed: %v", err)
+	}
+
+	return SearchTextResponse{Matches: matches}, nil
 }
 
 // FSReadFileAtCommit returns the content of a file at a specific commit.
@@ -504,7 +637,7 @@ func FSListDirectoryWithSizes(ctx context.Context, wm *workspace.Manager, a List
 	if err != nil {
 		return ListDirectoryWithSizesResponse{}, fmt.Errorf("INTERNAL: failed to list directory: %v", err)
 	}
-	var entries []EntryInfo
+	entries := make([]EntryInfo, 0, len(files))
 	var totals TotalsInfo
 	for _, f := range files {
 		if isProtectedName(f.Name()) {
@@ -543,7 +676,7 @@ func FSSearchFiles(ctx context.Context, wm *workspace.Manager, a SearchFilesRequ
 	if err != nil {
 		return SearchFilesResponse{}, fmt.Errorf("OUT_OF_BOUNDS: %v", err)
 	}
-	var matches []string
+	matches := make([]string, 0, 16)
 	err = filepath.WalkDir(start, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err

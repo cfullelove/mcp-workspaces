@@ -204,6 +204,26 @@ type SearchFilesResponse struct {
 	Matches []string `json:"matches"`
 }
 
+type SearchTextRequest struct {
+	WorkspaceID   string   `json:"workspaceId"`
+	Path          string   `json:"path"`
+	Query         string   `json:"query"`
+	IncludeGlobs  []string `json:"includeGlobs,omitempty"`
+	ExcludeGlobs  []string `json:"excludeGlobs,omitempty"`
+	Regex         bool     `json:"regex,omitempty"`
+	CaseSensitive bool     `json:"caseSensitive,omitempty"`
+}
+type TextMatch struct {
+	Path       string `json:"path"`
+	LineNumber int    `json:"lineNumber"`
+	LineText   string `json:"lineText"`
+	StartCol   int    `json:"startCol"`
+	EndCol     int    `json:"endCol"`
+}
+type SearchTextResponse struct {
+	Matches []TextMatch `json:"matches"`
+}
+
 type DirectoryTreeRequest struct {
 	WorkspaceID     string   `json:"workspaceId"`
 	Path            string   `json:"path"`
@@ -395,11 +415,22 @@ func buildServer(wm *workspace.Manager) *sdkmcp.Server {
 	)
 
 	// fs/search_files (name-glob-based per PRD prototype)
-	sdkmcp.AddTool[SearchFilesRequest, SearchFilesResponse](server, newTool("fs_search_files", "Search files by glob pattern"),
+	sdkmcp.AddTool[SearchFilesRequest, SearchFilesResponse](server, newTool("fs_search_files", "Search file names by glob pattern (no content search)"),
 		func(ctx context.Context, req *sdkmcp.CallToolRequest, a SearchFilesRequest) (*sdkmcp.CallToolResult, SearchFilesResponse, error) {
 			out, err := FSSearchFiles(ctx, wm, a)
 			if err != nil {
 				return nil, SearchFilesResponse{}, err
+			}
+			return nil, out, nil
+		},
+	)
+
+	// fs/search_text
+	sdkmcp.AddTool[SearchTextRequest, SearchTextResponse](server, newTool("fs_search_text", "Search text content in files"),
+		func(ctx context.Context, req *sdkmcp.CallToolRequest, a SearchTextRequest) (*sdkmcp.CallToolResult, SearchTextResponse, error) {
+			out, err := FSSearchText(ctx, wm, a)
+			if err != nil {
+				return nil, SearchTextResponse{}, err
 			}
 			return nil, out, nil
 		},
@@ -459,11 +490,12 @@ func buildServer(wm *workspace.Manager) *sdkmcp.Server {
 
 // buildTree builds the directory tree respecting simple exclude patterns (name-match).
 func buildTree(root string, excludePatterns []string) ([]TreeNode, error) {
-	var tree []TreeNode
 	files, err := os.ReadDir(root)
 	if err != nil {
 		return nil, err
 	}
+	// Ensure non-nil slice so JSON encodes [] rather than null
+	tree := make([]TreeNode, 0, len(files))
 	for _, f := range files {
 		// Always hide protected names
 		if isProtectedName(f.Name()) {
