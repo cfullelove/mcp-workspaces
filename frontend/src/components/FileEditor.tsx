@@ -6,7 +6,7 @@ import CodeMirror from '@uiw/react-codemirror';
 import { javascript } from '@codemirror/lang-javascript';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
-import { vscodeLight } from '@uiw/codemirror-theme-vscode';
+import { vscodeDark, vscodeLight } from '@uiw/codemirror-theme-vscode';
 import { python } from '@codemirror/lang-python';
 import { go as goLang } from '@codemirror/lang-go';
 import { EditorView } from '@codemirror/view';
@@ -29,6 +29,7 @@ interface FileEditorProps {
 }
 
 const FileEditor: React.FC<FileEditorProps> = ({ workspaceId, filePath, lastEvent }) => {
+  const prefersDark = typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches;
   const [content, setContent] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
 
@@ -272,7 +273,7 @@ const FileEditor: React.FC<FileEditorProps> = ({ workspaceId, filePath, lastEven
         <div className="flex-1 min-h-0 w-full">
           {isMarkdown && mdMode === 'preview' ? (
             <div className="h-full w-full overflow-auto rounded border bg-white p-4 text-left border-gray-200 text-gray-900 dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100">
-              <div className="prose prose-sm max-w-none">
+              <div className="prose prose-sm max-w-none prose-gray dark:prose-invert">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
               </div>
             </div>
@@ -284,7 +285,7 @@ const FileEditor: React.FC<FileEditorProps> = ({ workspaceId, filePath, lastEven
                 setDirty(true);
               }}
               style={{ height: '100%', width: '100%' }}
-              theme={vscodeLight}
+              theme={prefersDark ? vscodeDark : vscodeLight}
               basicSetup={{
                 lineNumbers: true,
                 highlightActiveLine: true,
