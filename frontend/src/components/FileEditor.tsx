@@ -183,7 +183,7 @@ const FileEditor: React.FC<FileEditorProps> = ({ workspaceId, filePath, lastEven
 
   return (
     <div className="h-full flex flex-col">
-      <div className="px-4 py-4 border-b">
+      <div className="px-4 py-4 border-b border-gray-200 dark:border-gray-800">
         <div className="flex items-center justify-between">
           <div className="text-lg font-medium">
             Editing: {filePath}
@@ -239,7 +239,7 @@ const FileEditor: React.FC<FileEditorProps> = ({ workspaceId, filePath, lastEven
       <div className="flex-1 min-h-0 flex flex-col px-4 py-2">
         {/* Remote change banner (when user has unsaved edits and a remote update arrives) */}
         {remoteChanged && !conflict && (
-          <div className="mb-3 p-3 rounded border border-yellow-300 bg-yellow-50 text-yellow-900 text-sm flex items-center justify-between">
+          <div className="mb-3 p-3 rounded border border-yellow-300 bg-yellow-50 text-yellow-900 text-sm flex items-center justify-between dark:border-yellow-800 dark:bg-yellow-950/40 dark:text-yellow-100">
             <span>Remote changes detected for this file. Review before saving to avoid overwriting.</span>
             <div className="flex items-center space-x-2">
               <Button variant="outline" size="sm" onClick={handleReloadRemote}>
@@ -254,7 +254,7 @@ const FileEditor: React.FC<FileEditorProps> = ({ workspaceId, filePath, lastEven
 
         {/* Conflict banner after failed save with 409 */}
         {conflict && (
-          <div className="mb-3 p-3 rounded border border-red-300 bg-red-50 text-red-900 text-sm">
+          <div className="mb-3 p-3 rounded border border-red-300 bg-red-50 text-red-900 text-sm dark:border-red-800 dark:bg-red-950/40 dark:text-red-100">
             <div className="flex items-center justify-between">
               <span>{conflict.message || 'Save conflict detected. The file has changed on the server.'}</span>
             </div>
@@ -271,7 +271,7 @@ const FileEditor: React.FC<FileEditorProps> = ({ workspaceId, filePath, lastEven
 
         <div className="flex-1 min-h-0 w-full">
           {isMarkdown && mdMode === 'preview' ? (
-            <div className="h-full w-full overflow-auto rounded border bg-white p-4 text-left">
+            <div className="h-full w-full overflow-auto rounded border bg-white p-4 text-left border-gray-200 text-gray-900 dark:bg-gray-950 dark:border-gray-800 dark:text-gray-100">
               <div className="prose prose-sm max-w-none">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
               </div>
@@ -295,7 +295,7 @@ const FileEditor: React.FC<FileEditorProps> = ({ workspaceId, filePath, lastEven
             />
           )}
         </div>
-        <div className="mt-2 text-xs text-gray-500 flex items-center justify-between">
+        <div className="mt-2 text-xs text-gray-500 dark:text-gray-400 flex items-center justify-between">
           <span>Etag: {etag || '—'}</span>
           <span>HEAD: {workspaceHead || '—'}</span>
         </div>

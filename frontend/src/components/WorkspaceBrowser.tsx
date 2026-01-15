@@ -197,13 +197,13 @@ const WorkspaceBrowser: React.FC<WorkspaceBrowserProps> = ({ onLogout }) => {
 
 
   return (
-    <div className="flex h-screen bg-gray-50">
+    <div className="flex h-screen bg-gray-50 text-gray-900 dark:bg-gray-950 dark:text-gray-100">
       {/* Left Sidebar */}
-      <div className="w-1/4 flex flex-col bg-white border-r">
-        <div className="p-4 border-b">
+      <div className="w-1/4 flex flex-col bg-white border-r border-gray-200 dark:bg-gray-900 dark:border-gray-800">
+        <div className="p-4 border-b border-gray-200 dark:border-gray-800">
           <div className="flex items-center gap-2">
             <select
-              className="border rounded px-2 py-1 text-sm flex-1"
+              className="border rounded px-2 py-1 text-sm flex-1 bg-white text-gray-900 border-gray-300 dark:bg-gray-950 dark:text-gray-100 dark:border-gray-700"
               value={selectedWorkspace}
               onChange={(e) => {
                 setSelectedWorkspace(e.target.value);

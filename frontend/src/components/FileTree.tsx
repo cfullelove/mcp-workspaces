@@ -147,7 +147,7 @@ const FileTree: React.FC<FileTreeProps> = ({ workspaceId, entry, parentPath, onS
     return (
       <div>
         <div
-          className={`flex items-center cursor-pointer p-1 h-10 rounded hover:bg-gray-100 ${selectedType === 'dir' && selectedPath === fullPath ? 'bg-blue-100' : ''}`}
+          className={`flex items-center cursor-pointer p-1 h-10 rounded hover:bg-gray-100 dark:hover:bg-gray-800 ${selectedType === 'dir' && selectedPath === fullPath ? 'bg-blue-100 dark:bg-blue-900/40' : ''}`}
           style={{ paddingLeft: `${level * 1.5}rem` }}
         >
           {isRenaming ? renamingContent : itemContent}
@@ -233,7 +233,7 @@ const FileTree: React.FC<FileTreeProps> = ({ workspaceId, entry, parentPath, onS
 
   return (
     <div
-      className={`flex items-center cursor-pointer p-1 h-10 rounded hover:bg-gray-100 ${selectedType === 'file' && selectedPath === fullPath ? 'bg-blue-100' : ''}`}
+      className={`flex items-center cursor-pointer p-1 h-10 rounded hover:bg-gray-100 dark:hover:bg-gray-800 ${selectedType === 'file' && selectedPath === fullPath ? 'bg-blue-100 dark:bg-blue-900/40' : ''}`}
       style={{ paddingLeft: `${level * 1.5}rem` }}
     >
       {isRenaming ? renamingContent : itemContent}
