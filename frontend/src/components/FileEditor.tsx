@@ -10,6 +10,8 @@ import { vscodeLight } from '@uiw/codemirror-theme-vscode';
 import { python } from '@codemirror/lang-python';
 import { go as goLang } from '@codemirror/lang-go';
 import { EditorView } from '@codemirror/view';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   Dialog,
   DialogContent,
@@ -18,6 +20,7 @@ import {
   DialogClose,
 } from "./ui/dialog";
 import FileHistory from './FileHistory';
+import { Eye, Pencil, History as HistoryIcon, Save } from 'lucide-react';
 
 interface FileEditorProps {
   workspaceId: string;
@@ -39,6 +42,8 @@ const FileEditor: React.FC<FileEditorProps> = ({ workspaceId, filePath, lastEven
   const [remoteChanged, setRemoteChanged] = useState<boolean>(false);
   const [conflict, setConflict] = useState<{ message?: string } | null>(null);
   const [historyOpen, setHistoryOpen] = useState<boolean>(false);
+
+  const [mdMode, setMdMode] = useState<'edit' | 'preview'>('edit');
 
   const mounted = useRef<boolean>(false);
   const savingRef = useRef<boolean>(false);
@@ -69,6 +74,7 @@ const FileEditor: React.FC<FileEditorProps> = ({ workspaceId, filePath, lastEven
   // Load file on selection change
   useEffect(() => {
     if (!workspaceId || !filePath) return;
+    setMdMode('edit');
     fetchContent();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceId, filePath]);
@@ -153,8 +159,11 @@ const FileEditor: React.FC<FileEditorProps> = ({ workspaceId, filePath, lastEven
     '.cm-scroller': { overflow: 'auto' }
   });
 
+  const fileExt = React.useMemo(() => filePath.split('.').pop()?.toLowerCase(), [filePath]);
+  const isMarkdown = fileExt === 'md' || fileExt === 'markdown';
+
   const cmExtensions = React.useMemo(() => {
-    const ext = filePath.split('.').pop()?.toLowerCase();
+    const ext = fileExt;
     let languageExt: any[] = [];
     if (ext === 'md' || ext === 'markdown') {
       languageExt = [markdown({ base: markdownLanguage, codeLanguages: languages })];
@@ -166,7 +175,7 @@ const FileEditor: React.FC<FileEditorProps> = ({ workspaceId, filePath, lastEven
       languageExt = [goLang()];
     }
     return [fullHeight, leftAlign, ...languageExt];
-  }, [filePath, leftAlign]);
+  }, [fileExt, leftAlign]);
 
   if (error) {
     return <p className="text-red-500">{error}</p>;
@@ -180,12 +189,49 @@ const FileEditor: React.FC<FileEditorProps> = ({ workspaceId, filePath, lastEven
             Editing: {filePath}
           </div>
           <div className="flex items-center space-x-2">
+            {isMarkdown && (
+              <div className="flex items-center rounded-md border overflow-hidden">
+                <Button
+                  variant={mdMode === 'edit' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setMdMode('edit')}
+                  className={mdMode === 'edit' ? 'rounded-none' : 'rounded-none bg-background'}
+                  aria-label="Edit"
+                  title="Edit"
+                >
+                  <Pencil className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant={mdMode === 'preview' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setMdMode('preview')}
+                  className={mdMode === 'preview' ? 'rounded-none' : 'rounded-none bg-background'}
+                  aria-label="Preview"
+                  title="Preview"
+                >
+                  <Eye className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
             {dirty && <span className="text-xs text-orange-600">Unsaved changes</span>}
-            <Button variant="outline" size="sm" onClick={() => setHistoryOpen(true)}>
-              History
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => setHistoryOpen(true)}
+              aria-label="History"
+              title="History"
+            >
+              <HistoryIcon className="h-4 w-4" />
             </Button>
-            <Button variant="outline" onClick={handleSave} disabled={saving || !dirty}>
-              {saving ? 'Saving...' : 'Save'}
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={handleSave}
+              disabled={saving || !dirty}
+              aria-label={saving ? 'Saving…' : 'Save'}
+              title={saving ? 'Saving…' : 'Save'}
+            >
+              <Save className="h-4 w-4" />
             </Button>
           </div>
         </div>
@@ -224,22 +270,30 @@ const FileEditor: React.FC<FileEditorProps> = ({ workspaceId, filePath, lastEven
         )}
 
         <div className="flex-1 min-h-0 w-full">
-          <CodeMirror
-            value={content}
-            onChange={(val) => {
-              setContent(val);
-              setDirty(true);
-            }}
-            style={{ height: '100%', width: '100%' }}
-            theme={vscodeLight}
-            basicSetup={{
-              lineNumbers: true,
-              highlightActiveLine: true,
-              bracketMatching: true,
-              autocompletion: true,
-            }}
-            extensions={cmExtensions}
-          />
+          {isMarkdown && mdMode === 'preview' ? (
+            <div className="h-full w-full overflow-auto rounded border bg-white p-4 text-left">
+              <div className="prose prose-sm max-w-none">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+              </div>
+            </div>
+          ) : (
+            <CodeMirror
+              value={content}
+              onChange={(val) => {
+                setContent(val);
+                setDirty(true);
+              }}
+              style={{ height: '100%', width: '100%' }}
+              theme={vscodeLight}
+              basicSetup={{
+                lineNumbers: true,
+                highlightActiveLine: true,
+                bracketMatching: true,
+                autocompletion: true,
+              }}
+              extensions={cmExtensions}
+            />
+          )}
         </div>
         <div className="mt-2 text-xs text-gray-500 flex items-center justify-between">
           <span>Etag: {etag || '—'}</span>

@@ -18,9 +18,10 @@ interface FileTreeProps {
   onCancelCreateInline?: () => void;
   level: number;
   refetch: () => void;
+  collapseSignal?: number;
 }
 
-const FileTree: React.FC<FileTreeProps> = ({ workspaceId, entry, parentPath, onSelectFile, onSelectDirectory, selectedPath, selectedType, createTargetPath, createType, onCreateInline, onCancelCreateInline, level, refetch }) => {
+const FileTree: React.FC<FileTreeProps> = ({ workspaceId, entry, parentPath, onSelectFile, onSelectDirectory, selectedPath, selectedType, createTargetPath, createType, onCreateInline, onCancelCreateInline, level, refetch, collapseSignal }) => {
   const [entries, setEntries] = useState<string[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
@@ -47,6 +48,13 @@ const FileTree: React.FC<FileTreeProps> = ({ workspaceId, entry, parentPath, onS
       fetchEntries();
     }
   }, [isOpen, refetch]);
+
+  useEffect(() => {
+    if (collapseSignal !== undefined) {
+      setIsOpen(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collapseSignal]);
 
   useEffect(() => {
     if (createTargetPath === fullPath && createType && !isOpen) {
@@ -214,6 +222,7 @@ const FileTree: React.FC<FileTreeProps> = ({ workspaceId, entry, parentPath, onS
                 onCancelCreateInline={onCancelCreateInline}
                 level={level + 1}
                 refetch={refetch}
+                collapseSignal={collapseSignal}
               />
             ))}
           </div>

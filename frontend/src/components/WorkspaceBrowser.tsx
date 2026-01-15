@@ -14,11 +14,18 @@ import {
   DialogTitle,
   DialogClose,
 } from "./ui/dialog";
-import { Plus, FilePlus, FolderPlus, Check, X } from 'lucide-react';
+import { Plus, FilePlus, FolderPlus, Check, X, LogOut, RefreshCw, FoldVertical } from 'lucide-react';
 
 interface WorkspaceBrowserProps {
   onLogout: () => void;
 }
+
+const LAST_SESSION_KEY = 'mcp-workspaces:lastSession:v1';
+
+type LastSessionStateV1 = {
+  selectedWorkspace?: string;
+  selectedFile?: string;
+};
 
 const WorkspaceBrowser: React.FC<WorkspaceBrowserProps> = ({ onLogout }) => {
   const [selectedWorkspace, setSelectedWorkspace] = useState<string>('');
@@ -41,8 +48,10 @@ const WorkspaceBrowser: React.FC<WorkspaceBrowserProps> = ({ onLogout }) => {
 
   // Root entries for FileTree
   const [rootEntries, setRootEntries] = useState<string[]>([]);
+  const [collapseSignal, setCollapseSignal] = useState<number>(0);
   const [lastEvent, setLastEvent] = useState<WorkspaceEvent | null>(null);
   const esRef = useRef<EventSource | null>(null);
+  const hasHydratedLastSessionRef = useRef<boolean>(false);
 
   const handleSelectFile = (filePath: string) => {
     const isFile = filePath.startsWith('[FILE]');
@@ -59,6 +68,20 @@ const WorkspaceBrowser: React.FC<WorkspaceBrowserProps> = ({ onLogout }) => {
     }
   };
 
+  // Persist last session selection
+  useEffect(() => {
+    if (!hasHydratedLastSessionRef.current) return;
+    try {
+      const state: LastSessionStateV1 = {
+        selectedWorkspace: selectedWorkspace || undefined,
+        selectedFile: selectedFile || undefined,
+      };
+      localStorage.setItem(LAST_SESSION_KEY, JSON.stringify(state));
+    } catch {
+      // ignore
+    }
+  }, [selectedWorkspace, selectedFile]);
+
   // Fetch list of workspaces for dropdown
   useEffect(() => {
     const fetchWorkspaces = async () => {
@@ -71,6 +94,42 @@ const WorkspaceBrowser: React.FC<WorkspaceBrowserProps> = ({ onLogout }) => {
     };
     fetchWorkspaces();
   }, [refetchWorkspaces]);
+
+  // Restore last session selection once workspaces are known
+  useEffect(() => {
+    if (hasHydratedLastSessionRef.current) return;
+    if (selectedWorkspace) {
+      hasHydratedLastSessionRef.current = true;
+      return;
+    }
+    if (!workspaces.length) return;
+
+    try {
+      const raw = localStorage.getItem(LAST_SESSION_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as LastSessionStateV1;
+        const ws = parsed.selectedWorkspace;
+        if (ws && workspaces.some((w) => w.name === ws)) {
+          setSelectedWorkspace(ws);
+
+          const file = parsed.selectedFile;
+          if (file) {
+            setSelectedFile(file);
+            setSelectedType('file');
+            setSelectedPath(file);
+            const lastSlash = file.lastIndexOf('/');
+            const parent = lastSlash > -1 ? file.substring(0, lastSlash) : '';
+            setSelectedDirectory(parent);
+          }
+        }
+      }
+    } catch {
+      // ignore
+    } finally {
+      hasHydratedLastSessionRef.current = true;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaces]);
 
   // Fetch root entries for FileTree when workspace changes or refetchFiles flips
   useEffect(() => {
@@ -169,17 +228,50 @@ const WorkspaceBrowser: React.FC<WorkspaceBrowserProps> = ({ onLogout }) => {
             >
               <Plus className="h-4 w-4" />
             </Button>
-            <Button variant="outline" size="sm" onClick={onLogout}>Logout</Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onLogout}
+              aria-label="Logout"
+              title="Logout"
+              className="h-8 w-8 p-0"
+            >
+              <LogOut className="h-4 w-4" />
+            </Button>
           </div>
         </div>
         <div className="flex-grow p-4 overflow-y-auto">
           {selectedWorkspace ? (
             <>
               <div className="flex items-center justify-between mb-2">
-                <div className="space-x-2">
+                <div />
+                <div className="flex items-center space-x-2">
                   <Button
-                    variant="outline"
+                    variant="ghost"
                     size="sm"
+                    title="Refresh"
+                    aria-label="Refresh"
+                    onClick={() => setRefetchFiles(!refetchFiles)}
+                    className="h-8 w-8 p-0"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    title="Collapse all"
+                    aria-label="Collapse all"
+                    onClick={() => setCollapseSignal((v) => v + 1)}
+                    disabled={!rootEntries.length}
+                    className="h-8 w-8 p-0"
+                  >
+                    <FoldVertical className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    title="New File"
+                    aria-label="New File"
                     onClick={() => {
                       const base = selectedDirectory || (selectedFile ? selectedFile.substring(0, selectedFile.lastIndexOf('/')) : '');
                       setPendingCreateType('file');
@@ -188,13 +280,15 @@ const WorkspaceBrowser: React.FC<WorkspaceBrowserProps> = ({ onLogout }) => {
                         setRootCreateName('');
                       }
                     }}
+                    className="h-8 w-8 p-0"
                   >
-                    <FilePlus className="mr-2 h-4 w-4" />
-                    New File
+                    <FilePlus className="h-4 w-4" />
                   </Button>
                   <Button
-                    variant="outline"
+                    variant="ghost"
                     size="sm"
+                    title="New Directory"
+                    aria-label="New Directory"
                     onClick={() => {
                       const base = selectedDirectory || (selectedFile ? selectedFile.substring(0, selectedFile.lastIndexOf('/')) : '');
                       setPendingCreateType('dir');
@@ -203,9 +297,9 @@ const WorkspaceBrowser: React.FC<WorkspaceBrowserProps> = ({ onLogout }) => {
                         setRootCreateName('');
                       }
                     }}
+                    className="h-8 w-8 p-0"
                   >
-                    <FolderPlus className="mr-2 h-4 w-4" />
-                    New Directory
+                    <FolderPlus className="h-4 w-4" />
                   </Button>
                 </div>
               </div>
@@ -317,6 +411,7 @@ const WorkspaceBrowser: React.FC<WorkspaceBrowserProps> = ({ onLogout }) => {
                     }}
                     level={0}
                     refetch={() => setRefetchFiles(!refetchFiles)}
+                    collapseSignal={collapseSignal}
                   />
                 ))}
               </div>
