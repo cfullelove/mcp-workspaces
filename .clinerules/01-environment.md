@@ -1,6 +1,8 @@
 # Context
 
-App components should be build/run/tested/etc using docker containers
+Frontend components should be build/run/tested/etc using docker containers
+
+Backend (golang) components can be built and tested directly
 
 # To build/rebuild the app
 
