@@ -141,7 +141,11 @@ const FileHistory: React.FC<FileHistoryProps> = ({ workspaceId, filePath, hideHe
               </div>
               <pre className="text-xs whitespace-pre-wrap overflow-auto leading-5 border rounded-md p-3 bg-white text-gray-900 border-gray-200 dark:bg-gray-950 dark:text-gray-100 dark:border-gray-800">
               {parts.map((p, idx) => {
-                const bg = p.added ? 'bg-green-100' : p.removed ? 'bg-red-100' : '';
+                const bg = p.added
+                  ? 'bg-green-100 text-green-900 dark:bg-green-900/50 dark:text-green-100'
+                  : p.removed
+                    ? 'bg-red-100 text-red-900 dark:bg-red-900/50 dark:text-red-100'
+                    : '';
                 const prefix = p.added ? '+ ' : p.removed ? '- ' : '  ';
                 return (
                   <span key={idx} className={bg}>
