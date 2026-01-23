@@ -113,7 +113,7 @@ const FileHistory: React.FC<FileHistoryProps> = ({ workspaceId, filePath, hideHe
                       onClick={() => setSelectedCommit(c)}
                       className={[
                         'w-full text-left p-2 rounded-md border transition-colors',
-                        isSelected ? 'bg-blue-50 border-blue-300' : 'border-gray-200 hover:bg-gray-50'
+                        isSelected ? 'bg-blue-50 border-blue-300 dark:bg-blue-900/30 dark:border-blue-700' : 'border-gray-200 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-900'
                       ].join(' ')}
                     >
                       <div className="text-sm font-medium truncate">{title}</div>
@@ -128,20 +128,24 @@ const FileHistory: React.FC<FileHistoryProps> = ({ workspaceId, filePath, hideHe
           )}
         </div>
 
-        <div className="flex-1 min-w-0 overflow-auto pl-4 border-l">
+        <div className="flex-1 min-w-0 overflow-auto pl-4 border-l border-gray-200 dark:border-gray-800">
           {diffLoading ? (
             <p className="text-sm text-gray-500">Loading diff…</p>
           ) : selectedCommit ? (
             <>
               <div className="mb-2 text-xs text-gray-600 font-mono flex items-center gap-2">
                 <span>Comparing</span>
-                <span className="px-1.5 py-0.5 rounded bg-gray-100">{selectedCommit.parent ? selectedCommit.parent.slice(0, 10) : '∅'}</span>
+                <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-100">{selectedCommit.parent ? selectedCommit.parent.slice(0, 10) : '∅'}</span>
                 <span>→</span>
-                <span className="px-1.5 py-0.5 rounded bg-gray-100">{selectedCommit.commit.slice(0, 10)}</span>
+                <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-100">{selectedCommit.commit.slice(0, 10)}</span>
               </div>
-              <pre className="text-xs whitespace-pre-wrap overflow-auto leading-5 border rounded-md p-3 bg-white">
+              <pre className="text-xs whitespace-pre-wrap overflow-auto leading-5 border rounded-md p-3 bg-white text-gray-900 border-gray-200 dark:bg-gray-950 dark:text-gray-100 dark:border-gray-800">
               {parts.map((p, idx) => {
-                const bg = p.added ? 'bg-green-100' : p.removed ? 'bg-red-100' : '';
+                const bg = p.added
+                  ? 'bg-green-100 text-green-900 dark:bg-green-900/50 dark:text-green-100'
+                  : p.removed
+                    ? 'bg-red-100 text-red-900 dark:bg-red-900/50 dark:text-red-100'
+                    : '';
                 const prefix = p.added ? '+ ' : p.removed ? '- ' : '  ';
                 return (
                   <span key={idx} className={bg}>
