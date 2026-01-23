@@ -24,7 +24,9 @@ func RunHTTP(host string, port int, wm *workspace.Manager, authTokens []string, 
 	// Create a streamable HTTP handler (supports resumption and reliable streaming).
 	streamable := sdkmcp.NewStreamableHTTPHandler(func(r *http.Request) *sdkmcp.Server {
 		return server
-	}, nil)
+	}, &sdkmcp.StreamableHTTPOptions{
+		JSONResponse: true,
+	})
 
 	mux := http.NewServeMux()
 
