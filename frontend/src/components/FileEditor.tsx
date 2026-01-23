@@ -44,7 +44,8 @@ const FileEditor: React.FC<FileEditorProps> = ({ workspaceId, filePath, lastEven
   const [conflict, setConflict] = useState<{ message?: string } | null>(null);
   const [historyOpen, setHistoryOpen] = useState<boolean>(false);
 
-  const [mdMode, setMdMode] = useState<'edit' | 'preview'>('edit');
+  const [mdMode, setMdMode] = useState<'edit' | 'preview'>('preview');
+  const lastMarkdownMode = useRef<'edit' | 'preview'>('preview');
 
   const mounted = useRef<boolean>(false);
   const savingRef = useRef<boolean>(false);
@@ -75,7 +76,11 @@ const FileEditor: React.FC<FileEditorProps> = ({ workspaceId, filePath, lastEven
   // Load file on selection change
   useEffect(() => {
     if (!workspaceId || !filePath) return;
-    setMdMode('edit');
+    const ext = filePath.split('.').pop()?.toLowerCase();
+    const isMarkdownFile = ext === 'md' || ext === 'markdown';
+    if (isMarkdownFile) {
+      setMdMode(lastMarkdownMode.current);
+    }
     fetchContent();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceId, filePath]);
@@ -195,7 +200,10 @@ const FileEditor: React.FC<FileEditorProps> = ({ workspaceId, filePath, lastEven
                 <Button
                   variant={mdMode === 'edit' ? 'default' : 'outline'}
                   size="sm"
-                  onClick={() => setMdMode('edit')}
+                  onClick={() => {
+                    setMdMode('edit');
+                    lastMarkdownMode.current = 'edit';
+                  }}
                   className={mdMode === 'edit' ? 'rounded-none' : 'rounded-none bg-background'}
                   aria-label="Edit"
                   title="Edit"
@@ -205,7 +213,10 @@ const FileEditor: React.FC<FileEditorProps> = ({ workspaceId, filePath, lastEven
                 <Button
                   variant={mdMode === 'preview' ? 'default' : 'outline'}
                   size="sm"
-                  onClick={() => setMdMode('preview')}
+                  onClick={() => {
+                    setMdMode('preview');
+                    lastMarkdownMode.current = 'preview';
+                  }}
                   className={mdMode === 'preview' ? 'rounded-none' : 'rounded-none bg-background'}
                   aria-label="Preview"
                   title="Preview"
