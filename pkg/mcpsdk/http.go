@@ -51,7 +51,10 @@ func RunHTTP(host string, port int, wm *workspace.Manager, authTokens []string, 
 		{"/mcp/stream", stripSessionIDMiddleware(streamable)},
 		{"/mcp/command", stripSessionIDMiddleware(streamable)},
 		// SSE compatibility mount to streamable (SDK v0.4.0 may not expose SSE handler)
-		{"/mcp/sse", stripSessionIDMiddleware(streamable)},
+		// {"/mcp/sse", stripSessionIDMiddleware(streamable)},
+		{"/mcp/sse", sdkmcp.NewSSEHandler(func(r *http.Request) *sdkmcp.Server {
+			return server
+		})},
 		// REST tools mirror
 		{"/api/tools/", restToolsHandler(wm)},
 	}
@@ -445,29 +448,29 @@ func httpStatusFromError(err error) int {
 }
 
 func stripSessionIDMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        // We use a custom response writer to intercept the body
-        rec := &responseBodyStripper{ResponseWriter: w}
-        next.ServeHTTP(rec, r)
-    })
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// We use a custom response writer to intercept the body
+		rec := &responseBodyStripper{ResponseWriter: w}
+		next.ServeHTTP(rec, r)
+	})
 }
 
 type responseBodyStripper struct {
-    http.ResponseWriter
+	http.ResponseWriter
 }
 
 func (w *responseBodyStripper) Write(b []byte) (int, error) {
-    // 1. Is it a JSON message?
-    if len(b) > 0 && b[0] == '{' {
-        var data map[string]interface{}
-        if err := json.Unmarshal(b, &data); err == nil {
-            // 2. Remove the field n8n hates
-            delete(data, "sessionId")
-            
-            // 3. Re-marshal and send
-            newJSON, _ := json.Marshal(data)
-            return w.ResponseWriter.Write(newJSON)
-        }
-    }
-    return w.ResponseWriter.Write(b)
+	// 1. Is it a JSON message?
+	if len(b) > 0 && b[0] == '{' {
+		var data map[string]interface{}
+		if err := json.Unmarshal(b, &data); err == nil {
+			// 2. Remove the field n8n hates
+			delete(data, "sessionId")
+
+			// 3. Re-marshal and send
+			newJSON, _ := json.Marshal(data)
+			return w.ResponseWriter.Write(newJSON)
+		}
+	}
+	return w.ResponseWriter.Write(b)
 }
