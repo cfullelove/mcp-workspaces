@@ -71,8 +71,12 @@ const api = {
     return this.post('tools/fs_create_directory', { workspaceId, path });
   },
 
-  async listDirectory(workspaceId: string, path: string): Promise<{ entries: string[] }> {
-    return this.post('tools/fs_list_directory', { workspaceId, path });
+  async listDirectory(
+    workspaceId: string,
+    path: string,
+    options?: { recursive?: boolean; maxDepth?: number }
+  ): Promise<{ entries: string[] }> {
+    return this.post('tools/fs_list_directory', { workspaceId, path, ...options });
   },
 
   async deleteFile(workspaceId: string, path: string): Promise<any> {

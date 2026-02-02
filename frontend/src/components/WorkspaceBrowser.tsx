@@ -159,10 +159,12 @@ const WorkspaceBrowser: React.FC<WorkspaceBrowserProps> = ({ onLogout }) => {
       setLastEvent(null);
       return;
     }
+    const authToken = localStorage.getItem('authToken');
     const es = createWorkspaceEventSource(
       '', // same-origin so Vite proxy can forward /events to backend in dev
       selectedWorkspace,
       {
+        token: authToken || undefined,
         onEvent: (evt) => {
           setLastEvent(evt);
           // For now, any file/dir change triggers a light refresh of visible trees
