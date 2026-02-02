@@ -240,21 +240,82 @@ func FSListDirectory(ctx context.Context, wm *workspace.Manager, a ListDirectory
 	if err != nil {
 		return ListDirectoryResponse{}, fmt.Errorf("OUT_OF_BOUNDS: %v", err)
 	}
-	files, err := os.ReadDir(absPath)
+
+	// Non-recursive path (default behavior)
+	if !a.Recursive {
+		files, err := os.ReadDir(absPath)
+		if err != nil {
+			return ListDirectoryResponse{}, fmt.Errorf("INTERNAL: failed to list directory: %v", err)
+		}
+		entries := make([]string, 0, len(files))
+		for _, f := range files {
+			if isProtectedName(f.Name()) {
+				continue
+			}
+			prefix := "[FILE]"
+			if f.IsDir() {
+				prefix = "[DIR]"
+			}
+			entries = append(entries, prefix+" "+f.Name())
+		}
+		return ListDirectoryResponse{Entries: entries}, nil
+	}
+
+	// Recursive path
+	entries := make([]string, 0)
+	err = filepath.WalkDir(absPath, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Skip the root directory itself
+		if path == absPath {
+			return nil
+		}
+
+		// Compute relative path from the starting directory
+		relPath, err := filepath.Rel(absPath, path)
+		if err != nil {
+			return err
+		}
+
+		// Check depth limit if specified
+		if a.MaxDepth != nil {
+			// Calculate depth as the number of path separators in the relative path
+			// For files/dirs at root level (e.g., "file.txt"), depth is 1
+			// For "subdir/file.txt", depth is 2, etc.
+			// maxDepth=0 means only immediate children (depth 1)
+			// maxDepth=1 means up to depth 2, etc.
+			depth := strings.Count(relPath, string(filepath.Separator)) + 1
+			if depth > (*a.MaxDepth + 1) {
+				if d.IsDir() {
+					return fs.SkipDir
+				}
+				return nil
+			}
+		}
+
+		// Filter protected names
+		if isProtectedName(d.Name()) {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+
+		// Add entry with appropriate prefix
+		prefix := "[FILE]"
+		if d.IsDir() {
+			prefix = "[DIR]"
+		}
+		entries = append(entries, prefix+" "+relPath)
+		return nil
+	})
+
 	if err != nil {
 		return ListDirectoryResponse{}, fmt.Errorf("INTERNAL: failed to list directory: %v", err)
 	}
-	entries := make([]string, 0, len(files))
-	for _, f := range files {
-		if isProtectedName(f.Name()) {
-			continue
-		}
-		prefix := "[FILE]"
-		if f.IsDir() {
-			prefix = "[DIR]"
-		}
-		entries = append(entries, prefix+" "+f.Name())
-	}
+
 	return ListDirectoryResponse{Entries: entries}, nil
 }
 

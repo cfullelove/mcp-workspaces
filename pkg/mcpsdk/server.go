@@ -92,6 +92,8 @@ type CreateDirectoryResponse struct {
 type ListDirectoryRequest struct {
 	WorkspaceID string `json:"workspaceId"`
 	Path        string `json:"path"`
+	Recursive   bool   `json:"recursive,omitempty"`
+	MaxDepth    *int   `json:"maxDepth,omitempty"`
 }
 type ListDirectoryResponse struct {
 	Entries []string `json:"entries"`
